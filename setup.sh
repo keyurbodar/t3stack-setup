@@ -74,11 +74,21 @@ EOF
 
 # fetch_asset gets a file fresh: the API first (no CDN in front of it, so a
 # just-published change is there at once), then the release asset.
-fetch_asset() { # dest path-in-repo
-	if curl -fsSL --connect-timeout 8 --max-time 30 \
-		-H 'Accept: application/vnd.github.raw' \
-		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/$2?x=$(date +%s)" -o "$1" 2>/dev/null; then
+gh_auth() {
+	if [ -n "${GH_TOKEN:-}" ]; then printf 'Authorization: Bearer %s' "$GH_TOKEN"; return 0; fi
+	if [ -f "$GH_TOKEN_FILE" ]; then
+		printf 'Authorization: Bearer %s' "$(tr -d '\r\n' <"$GH_TOKEN_FILE")"
 		return 0
+	fi
+	return 1
+}
+
+fetch_asset() { # dest path-in-repo
+	auth=$(gh_auth || true)
+	if [ -n "$auth" ]; then
+		curl -fsSL --connect-timeout 8 --max-time 30 -H "$auth" \
+			-H 'Accept: application/vnd.github.raw' \
+			"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/$2?x=$(date +%s)" -o "$1" 2>/dev/null && return 0
 	fi
 	curl -fsSL --connect-timeout 8 --max-time 60 "$RELEASE/$2" -o "$1"
 }
@@ -691,7 +701,8 @@ PYEOF
 # Every machine writes one small file into this public repo, so one command here
 # can show what every machine runs. Written only when something changed.
 fleet_file() {
-	curl -fsSL --max-time 20 -H 'Accept: application/vnd.github.raw' \
+	auth=$(gh_auth || true)
+	curl -fsSL --max-time 20 ${auth:+-H "$auth"} -H 'Accept: application/vnd.github.raw' \
 		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet/$1?x=$(date +%s)" 2>/dev/null
 }
 
@@ -750,7 +761,8 @@ PYEOF
 
 fleet() {
 	command -v python3 >/dev/null 2>&1 || die "fleet: python3 is required"
-	list=$(curl -fsSL --max-time 20 "https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet?x=$(date +%s)" 2>/dev/null |
+	auth=$(gh_auth || true)
+	list=$(curl -fsSL --max-time 20 ${auth:+-H "$auth"} "https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet?x=$(date +%s)" 2>/dev/null |
 		python3 -c 'import json,sys
 try:
     d=json.load(sys.stdin)
