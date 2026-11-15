@@ -69,6 +69,18 @@ It stores it 0600 at `~/.config/t3stack/github.token`, sets `GH_TOKEN`, installs
 and the private-repo clone work with no login, no OTP. Rotate by running the
 command again with the new token.
 
+## Claude Code plugins
+
+`claude-plugins.txt` names what every machine installs into Claude Code:
+
+```
+<marketplace>  <plugin-id>
+cursor/plugins  pstack@cursor-plugins
+```
+
+The converge run adds the marketplace once and installs the plugin if it is
+missing. Uninstall it anywhere and it comes back on the next tick.
+
 ## Dotfiles
 
 magpie owns `model` and its gateway `env` in `~/.claude/settings.json` (and the
