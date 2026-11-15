@@ -49,9 +49,11 @@ anything written.
 
 ## GitHub token (only where you push)
 
-Clients don't need one: `dotfiles pull` reads this public repo anonymously, and
-model lists come from the hub. A token is only needed where you run
-`t3stack dotfiles save` (push) or `t3stack sync` (private backup).
+Clients don't need one typed: `dotfiles pull` reads this public repo anonymously,
+and `t3stack sync` decrypts the backup token from `hub/github.token.enc` with the
+join key that machine already has (`~/.config/t3stack/gateway.key`), so it asks
+only for the sync passphrase, once. A token is needed only where you run
+`t3stack dotfiles save` (push) with a token of your own.
 
 Create a token once — classic with `repo` (and `workflow` if needed), or
 fine-grained limited to `t3stack` + `t3stack-setup` with Contents: read/write —
