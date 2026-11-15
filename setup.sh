@@ -262,18 +262,50 @@ EOF
 
 # ---- dependencies -----------------------------------------------------------
 pkg_install() {
-	if command -v apt-get >/dev/null 2>&1; then
-		sudo apt-get update -qq >/dev/null 2>&1 || true
-		sudo apt-get install -y "$@" >/dev/null 2>&1 || info "! could not install: $*"
-	elif command -v dnf >/dev/null 2>&1; then
-		sudo dnf install -y "$@" >/dev/null 2>&1 || info "! could not install: $*"
-	elif command -v pacman >/dev/null 2>&1; then
-		sudo pacman -S --needed --noconfirm "$@" >/dev/null 2>&1 || info "! could not install: $*"
-	elif command -v brew >/dev/null 2>&1; then
+	if command -v brew >/dev/null 2>&1; then
 		brew install "$@" >/dev/null 2>&1 || info "! could not install: $*"
+		return
+	fi
+	if sudo -n true 2>/dev/null; then
+		S="sudo -n"
+	elif (exec </dev/tty) 2>/dev/null; then
+		S="sudo"
+	else
+		info "! needs sudo, skipping: $*"
+		return 1
+	fi
+	if command -v apt-get >/dev/null 2>&1; then
+		$S apt-get update -qq >/dev/null 2>&1 || true
+		$S apt-get install -y "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	elif command -v dnf >/dev/null 2>&1; then
+		$S dnf install -y "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	elif command -v pacman >/dev/null 2>&1; then
+		$S pacman -S --needed --noconfirm "$@" >/dev/null 2>&1 || info "! could not install: $*"
 	else
 		info "! install by hand: $*"
 	fi
+}
+
+# fastfetch has a static binary, so no sudo and no distro package needed.
+install_fastfetch() {
+	command -v fastfetch >/dev/null 2>&1 && return 0
+	case "$(uname -m)" in
+	x86_64 | amd64) a=amd64 ;;
+	aarch64 | arm64) a=aarch64 ;;
+	*) return 1 ;;
+	esac
+	[ "$(uname -s)" = "Linux" ] || return 1
+	tmp=$(mktemp -d)
+	curl -fsSL --max-time 90 "https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-linux-$a.tar.gz" -o "$tmp/ff.tgz" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+	tar -xzf "$tmp/ff.tgz" -C "$tmp" 2>/dev/null || { rm -rf "$tmp"; return 1; }
+	bin=$(find "$tmp" -type f -path "*/usr/bin/fastfetch" | head -n1)
+	if [ -n "$bin" ]; then
+		install -m755 "$bin" "$HOME/.local/bin/fastfetch"
+		rm -rf "$tmp"
+		return 0
+	fi
+	rm -rf "$tmp"
+	return 1
 }
 
 install_node() {
@@ -312,8 +344,7 @@ install_deps() {
 	install_gh
 	command -v htop >/dev/null 2>&1 || pkg_install htop
 	if ! command -v fastfetch >/dev/null 2>&1 && ! command -v neofetch >/dev/null 2>&1; then
-		pkg_install fastfetch
-		command -v fastfetch >/dev/null 2>&1 || pkg_install neofetch
+		install_fastfetch || pkg_install neofetch
 	fi
 	install_node
 	install_bun
@@ -646,6 +677,7 @@ sync() {
 	repo=${1:-$REPO_DEFAULT}
 	install_self
 	install_magpie
+	install_deps
 	install_timer
 	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
 	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(decrypt_github_token || true)
