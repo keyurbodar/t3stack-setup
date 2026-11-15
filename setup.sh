@@ -206,14 +206,15 @@ install_timer() {
 	bin=$(command -v magpie 2>/dev/null) || return 0
 	dir="$HOME/.config/systemd/user"
 	mkdir -p "$dir"
-	cat >"$dir/t3stack-models.service" <<EOF
+	changed=""
+	cat >"$dir/t3stack-models.service.new" <<EOF
 [Unit]
 Description=Refresh magpie model lists and shared dotfiles
 [Service]
 Type=oneshot
 ExecStart=/bin/sh -c '$SELF update >/dev/null 2>&1 || true; $bin sync; $SELF dotfiles pull'
 EOF
-	cat >"$dir/t3stack-models.timer" <<EOF
+	cat >"$dir/t3stack-models.timer.new" <<EOF
 [Unit]
 Description=Refresh magpie model lists every 10 minutes
 [Timer]
@@ -223,83 +224,18 @@ Unit=t3stack-models.service
 [Install]
 WantedBy=timers.target
 EOF
-	systemctl --user daemon-reload >/dev/null 2>&1 || return 0
-	systemctl --user enable --now t3stack-models.timer >/dev/null 2>&1 || true
-}
-
-# ---- github -----------------------------------------------------------------
-install_gh() {
-	command -v gh >/dev/null 2>&1 && return 0
-	command -v python3 >/dev/null 2>&1 || die "github: python3 is needed to install gh"
-	os=$(uname -s) arch=$(uname -m)
-	case "$os" in
-	Linux) o=linux ;;
-	Darwin) o=macOS ;;
-	*) die "github: unsupported OS for gh: $os" ;;
-	esac
-	case "$arch" in
-	x86_64 | amd64) a=amd64 ;;
-	aarch64 | arm64) a=arm64 ;;
-	*) die "github: unsupported architecture for gh: $arch" ;;
-	esac
-	tag=$(curl -fsSL --max-time 20 https://api.github.com/repos/cli/cli/releases/latest |
-		python3 -c 'import json,sys;print(json.load(sys.stdin)["tag_name"])') ||
-		die "github: could not read the gh release"
-	ver=${tag#v}
-	tmp=$(mktemp -d)
-	case "$o" in
-	linux)
-		curl -fsSL --max-time 120 "https://github.com/cli/cli/releases/download/$tag/gh_${ver}_linux_${a}.tar.gz" -o "$tmp/gh.tar.gz" ||
-			die "github: could not download gh"
-		tar -xzf "$tmp/gh.tar.gz" -C "$tmp"
-		install -m755 "$tmp/gh_${ver}_linux_${a}/bin/gh" "$HOME/.local/bin/gh"
-		;;
-	macOS)
-		curl -fsSL --max-time 120 "https://github.com/cli/cli/releases/download/$tag/gh_${ver}_macOS_${a}.zip" -o "$tmp/gh.zip" ||
-			die "github: could not download gh"
-		unzip -q "$tmp/gh.zip" -d "$tmp"
-		install -m755 "$tmp/gh_${ver}_macOS_${a}/bin/gh" "$HOME/.local/bin/gh"
-		;;
-	esac
-	rm -rf "$tmp"
-	command -v gh >/dev/null 2>&1 || die "github: gh did not install"
-}
-
-github_cmd() {
-	token=""
-	case "${1:-}" in
-	--token-file) token=$(cat "${2:?--token-file needs a path}") ;;
-	"") ;;
-	*) token=$1 ;;
-	esac
-	[ -n "$token" ] || token=${GH_TOKEN:-}
-	if [ -z "$token" ] && [ -f "$GH_TOKEN_FILE" ]; then
-		token=$(tr -d '\r\n' <"$GH_TOKEN_FILE")
+	for f in t3stack-models.service t3stack-models.timer; do
+		if cmp -s "$dir/$f.new" "$dir/$f"; then
+			rm -f "$dir/$f.new"
+		else
+			mv "$dir/$f.new" "$dir/$f"
+			changed=1
+		fi
+	done
+	if [ -n "$changed" ]; then
+		systemctl --user daemon-reload >/dev/null 2>&1 || return 0
+		systemctl --user enable --now t3stack-models.timer >/dev/null 2>&1 || true
 	fi
-	if [ -z "$token" ] && (exec </dev/tty) 2>/dev/null; then
-		printf 'GitHub token (repo scope, or fine-grained read/write on t3stack): ' >/dev/tty
-		IFS= read -r token </dev/tty || token=""
-	fi
-	[ -n "$token" ] || die "github: no token given"
-	case "$token" in
-	ghp_* | github_pat_* | gho_* | ghu_*) ;;
-	*) info "! that does not look like a GitHub token; trying anyway" ;;
-	esac
-	mkdir -p "$(dirname "$GH_TOKEN_FILE")"
-	printf '%s\n' "$token" >"$GH_TOKEN_FILE"
-	chmod 600 "$GH_TOKEN_FILE"
-	export GH_TOKEN=$token
-	install_gh
-	if printf '%s' "$token" | gh auth login --with-token >/dev/null 2>&1; then
-		gh auth setup-git >/dev/null 2>&1 || true
-		info "github: token stored, gh and git are set up"
-	elif gh auth status >/dev/null 2>&1; then
-		gh auth setup-git >/dev/null 2>&1 || true
-		info "github: token stored (used through GH_TOKEN)"
-	else
-		info "! github: the token was not accepted; kept at $GH_TOKEN_FILE"
-	fi
-	gh auth status 2>&1 | sed -n '1,5p'
 }
 
 # ---- dependencies -----------------------------------------------------------
@@ -726,7 +662,7 @@ update_self() {
 	fi
 	mv "$SELF.new" "$SELF"
 	chmod +x "$SELF"
-	[ -d "$HOME/.config/systemd/user" ] && install_timer
+	install_timer
 	info "updated $SELF"
 }
 
