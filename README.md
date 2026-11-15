@@ -6,9 +6,14 @@ command. Nothing is fetched again unless you run `t3stack update`.
 ## Clients
 
 ```sh
-curl -fsSL https://github.com/keyurbodar/t3stack-setup/releases/latest/download/setup.sh \
-  | sh -s -- join <join-key>
+git clone -q https://github.com/keyurbodar/t3stack-setup ~/.local/share/t3stack-setup
+sh ~/.local/share/t3stack-setup/setup.sh join <join-key>
 ```
+
+(The repository is the distribution — one clone, pulled at most once a minute.
+There are no releases, tags or assets to go stale. If `raw.githubusercontent.com`
+is blocked, the API works too:
+`curl -fsSL -H 'Accept: application/vnd.github.raw' https://api.github.com/repos/keyurbodar/t3stack-setup/contents/setup.sh | sh -s -- join <key>`.)
 
 That installs magpie **and itself** as `~/.local/bin/t3stack`, plus the basics
 (`curl`, `gh`, `htop`, `fastfetch` or `neofetch`, `node`, `bun`) where they are
