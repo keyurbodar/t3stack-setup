@@ -11,6 +11,8 @@
 #   t3stack status                 what is here
 #   t3stack hub [--client NAME]    make this machine the hub
 #   t3stack dotfiles [pull|save]   merge/save dotfile fragments for Claude, pi, T3
+#   t3stack fleet                  every machine's version, models and agents
+#   t3stack report                 publish this machine's status
 #   t3stack deps                   install curl, gh, htop, fastfetch, node, bun
 #   t3stack github [token|--token-file F]  store a GitHub token for this machine
 #   t3stack update                 refresh the local command
@@ -50,6 +52,7 @@ t3stack — one magpie hub, many machines
   t3stack sync                            magpie's encrypted config/skills sync
   t3stack status                          gateway, providers, agents
   t3stack hub [--client NAME] [--port N]  make this machine the hub
+  t3stack fleet                           every machine's version, models and agents
   t3stack deps                            install curl, gh, htop, fastfetch, node, bun
   t3stack github [token]                  store a GitHub token (no gh login/OTP again)
   t3stack dotfiles pull                   merge shared Claude/pi/T3 settings here
@@ -234,7 +237,7 @@ install_timer() {
 Description=Refresh magpie model lists and shared dotfiles
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '$SELF update >/dev/null 2>&1 || true; $SELF deps >/dev/null 2>&1 || true; $bin sync; $SELF dotfiles pull'
+ExecStart=/bin/sh -c '$SELF update >/dev/null 2>&1 || true; $SELF deps >/dev/null 2>&1 || true; $bin sync; $SELF dotfiles pull; $SELF report >/dev/null 2>&1 || true'
 EOF
 	cat >"$dir/t3stack-models.timer.new" <<EOF
 [Unit]
@@ -684,6 +687,101 @@ PYEOF
 	esac
 }
 
+# ---- fleet ------------------------------------------------------------------
+# Every machine writes one small file into this public repo, so one command here
+# can show what every machine runs. Written only when something changed.
+fleet_file() {
+	curl -fsSL --max-time 20 -H 'Accept: application/vnd.github.raw' \
+		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet/$1?x=$(date +%s)" 2>/dev/null
+}
+
+report() {
+	host=$(hostname 2>/dev/null || echo machine)
+	tok=${GITHUB_TOKEN:-}
+	[ -n "$tok" ] || tok=$(decrypt_github_token 2>/dev/null || true)
+	[ -n "$tok" ] || { info "report: no GitHub token here, skipping"; return 0; }
+	command -v python3 >/dev/null 2>&1 || return 0
+	info=$(python3 - "$host" "$SELF" <<'PYEOF'
+import json, os, subprocess, sys, hashlib, platform, datetime
+host, self_p = sys.argv[1], sys.argv[2]
+def out(cmd):
+    try: return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=20).stdout.strip()
+    except Exception: return ""
+def first_lines(text, n=8):
+    return [l.strip() for l in text.splitlines() if l.strip()][:n]
+sha = ""
+try:
+    sha = hashlib.sha256(open(self_p, "rb").read()).hexdigest()[:12]
+except Exception: pass
+agents = []
+for l in out("magpie ls 2>/dev/null").splitlines():
+    l = l.strip()
+    if not l: continue
+    parts = l.split()
+    if len(parts) >= 2:
+        agents.append({"agent": parts[0], "model": parts[1] if parts[1] != "·" else ""})
+d = {
+    "host": host,
+    "os": platform.platform(),
+    "magpie": out("magpie --version 2>/dev/null").replace("magpie ", ""),
+    "t3stack": sha,
+    "hub": out("magpie providers 2>/dev/null | awk '/Remote magpie/{print $3}'"),
+    "models": out("magpie models 2>/dev/null | grep -c '^  hub/'"),
+    "agents": agents,
+}
+print(json.dumps(d, sort_keys=True))
+PYEOF
+)
+	[ -n "$info" ] || return 0
+	remote=$(fleet_file "$host.json" || true)
+	if [ "$remote" = "$info" ]; then
+		return 0
+	fi
+	b64=$(printf '%s' "$info" | base64 | tr -d '\n')
+	args="-X PUT repos/keyurbodar/t3stack-setup/contents/fleet/$host.json -f message=fleet:$host -f content=$b64"
+	sha=$(curl -fsSL --max-time 20 -H "Authorization: Bearer $tok" \
+		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet/$host.json?x=$(date +%s)" 2>/dev/null |
+		sed -n 's/.*"sha": *"\([^"]*\)".*/\1/p' | head -n1)
+	[ -n "$sha" ] && args="$args -f sha=$sha"
+	# shellcheck disable=SC2086
+	GH_TOKEN=$tok gh api $args >/dev/null 2>&1 || true
+}
+
+fleet() {
+	command -v python3 >/dev/null 2>&1 || die "fleet: python3 is required"
+	list=$(curl -fsSL --max-time 20 "https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet?x=$(date +%s)" 2>/dev/null |
+		python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    d=[]
+print("\\n".join(x["name"] for x in d if x["name"].endswith(".json")))') || true
+	[ -n "$list" ] || { info "no machines have reported yet"; return 0; }
+	tmp=$(mktemp -d)
+	for f in $list; do
+		fleet_file "$f" >"$tmp/$f" 2>/dev/null || true
+	done
+	python3 - "$tmp" <<'PYEOF'
+import json, os, sys, time, datetime
+d = sys.argv[1]
+rows = []
+for name in sorted(os.listdir(d)):
+    if not name.endswith(".json"): continue
+    try: info = json.load(open(os.path.join(d, name)))
+    except Exception: continue
+    rows.append(info)
+if not rows:
+    print("no readable reports")
+    sys.exit(0)
+w = max(len(r.get("host","")) for r in rows)
+print(f"{'HOST'.ljust(w)}  {'MAGPIE':9}  {'T3STACK':8}  {'MODELS':6}  AGENTS")
+for r in rows:
+    agents = ", ".join(f"{a['agent']}={a['model']}" for a in r.get("agents", []) if a.get("model"))
+    print(f"{r.get('host','').ljust(w)}  {r.get('magpie',''):9}  {r.get('t3stack',''):8}  {str(r.get('models','')):6}  {agents}")
+PYEOF
+	rm -rf "$tmp"
+}
+
 # ---- hub -------------------------------------------------------------------
 
 hub() {
@@ -889,6 +987,8 @@ join) join "$@" ;;
 dotfiles) dotfiles "$@" ;;
 github) github_cmd "$@" ;;
 deps) install_deps; info "deps: curl gh htop fastfetch/neofetch node bun" ;;
+fleet) fleet ;;
+report) report ;;
 sync) sync "$@" ;;
 status) status ;;
 hub) hub "$@" ;;
