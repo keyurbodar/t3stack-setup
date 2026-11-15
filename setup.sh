@@ -513,6 +513,11 @@ join() {
 
 	install_self
 	install_magpie
+	# A GH_TOKEN from the bootstrap is stored here, so dotfiles and the private
+	# repo work afterwards with no login.
+	if [ -n "${GH_TOKEN:-}" ] && [ ! -f "$GH_TOKEN_FILE" ]; then
+		github_cmd >/dev/null 2>&1 || true
+	fi
 	case "$url" in
 	https://*) trust_hub_ca ;;
 	esac
