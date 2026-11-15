@@ -11,6 +11,7 @@
 #   t3stack status                 what is here
 #   t3stack hub [--client NAME]    make this machine the hub
 #   t3stack dotfiles [pull|save]   merge/save dotfile fragments for Claude, pi, T3
+#   t3stack deps                   install curl, gh, htop, fastfetch, node, bun
 #   t3stack github [token|--token-file F]  store a GitHub token for this machine
 #   t3stack update                 refresh the local command
 #
@@ -49,6 +50,7 @@ t3stack — one magpie hub, many machines
   t3stack sync                            magpie's encrypted config/skills sync
   t3stack status                          gateway, providers, agents
   t3stack hub [--client NAME] [--port N]  make this machine the hub
+  t3stack deps                            install curl, gh, htop, fastfetch, node, bun
   t3stack github [token]                  store a GitHub token (no gh login/OTP again)
   t3stack dotfiles pull                   merge shared Claude/pi/T3 settings here
   t3stack dotfiles save [message]         capture this machine's extra keys, commit, push
@@ -300,10 +302,70 @@ github_cmd() {
 	gh auth status 2>&1 | sed -n '1,5p'
 }
 
+# ---- dependencies -----------------------------------------------------------
+pkg_install() {
+	if command -v apt-get >/dev/null 2>&1; then
+		sudo apt-get update -qq >/dev/null 2>&1 || true
+		sudo apt-get install -y "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	elif command -v dnf >/dev/null 2>&1; then
+		sudo dnf install -y "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	elif command -v pacman >/dev/null 2>&1; then
+		sudo pacman -S --needed --noconfirm "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	elif command -v brew >/dev/null 2>&1; then
+		brew install "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	else
+		info "! install by hand: $*"
+	fi
+}
+
+install_node() {
+	command -v node >/dev/null 2>&1 && return 0
+	case "$(uname -m)" in
+	x86_64 | amd64) a=x64 ;;
+	aarch64 | arm64) a=arm64 ;;
+	*) pkg_install nodejs && return 0 ;;
+	esac
+	if [ "$(uname -s)" = "Darwin" ]; then
+		pkg_install node
+		return 0
+	fi
+	command -v python3 >/dev/null 2>&1 || { pkg_install nodejs; return 0; }
+	info "installing node"
+	ver=$(curl -fsSL --max-time 20 https://nodejs.org/dist/index.json |
+		python3 -c 'import json,sys;v=[x["version"] for x in json.load(sys.stdin) if x.get("lts")];print(v[0].lstrip("v"))' 2>/dev/null) || return 0
+	tmp=$(mktemp -d)
+	curl -fsSL --max-time 180 "https://nodejs.org/dist/v$ver/node-v$ver-linux-$a.tar.gz" -o "$tmp/n.tar.gz" || { rm -rf "$tmp"; return 0; }
+	mkdir -p "$HOME/.local/node"
+	tar -xzf "$tmp/n.tar.gz" -C "$HOME/.local/node" --strip-components=1
+	for b in node npm npx; do
+		ln -sfn "$HOME/.local/node/bin/$b" "$HOME/.local/bin/$b"
+	done
+	rm -rf "$tmp"
+}
+
+install_bun() {
+	command -v bun >/dev/null 2>&1 && return 0
+	info "installing bun"
+	curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1 || info "! bun install failed"
+}
+
+install_deps() {
+	command -v curl >/dev/null 2>&1 || pkg_install curl
+	install_gh
+	command -v htop >/dev/null 2>&1 || pkg_install htop
+	if ! command -v fastfetch >/dev/null 2>&1 && ! command -v neofetch >/dev/null 2>&1; then
+		pkg_install fastfetch
+		command -v fastfetch >/dev/null 2>&1 || pkg_install neofetch
+	fi
+	install_node
+	install_bun
+}
+
 # ---- dotfiles --------------------------------------------------------------
 # Only the keys magpie does not own are shared; magpie's keys are stripped from
 # the fragment on the way in and out, so the two never fight.
-DF_REPO="$HOME/.local/share/t3stack"
+DF_REPO="$HOME/.local/share/t3stack-setup"
+DF_URL="https://github.com/keyurbodar/t3stack-setup.git"
 DF_CLAUDE="$HOME/.claude/settings.json"
 DF_PI="$HOME/.pi/agent/settings.json"
 DF_T3="$HOME/.t3/userdata/settings.json"
@@ -314,11 +376,11 @@ DF_PROTECT_T3='providerInstances'
 df_repo() {
 	command -v git >/dev/null 2>&1 || die "dotfiles: git is not installed"
 	if [ -d "$DF_REPO/.git" ]; then
-		git -C "$DF_REPO" pull --ff-only -q 2>/dev/null || info "! dotfiles: pull failed (network or auth)"
+		git -C "$DF_REPO" pull --ff-only -q 2>/dev/null || info "! dotfiles: pull failed (network)"
 	else
 		mkdir -p "$(dirname "$DF_REPO")"
-		git clone -q https://github.com/keyurbodar/t3stack.git "$DF_REPO" 2>/dev/null ||
-			die "dotfiles: cannot clone the private repo — is gh auth set up? (gh auth login)"
+		git clone -q "$DF_URL" "$DF_REPO" 2>/dev/null ||
+			die "dotfiles: cannot clone $DF_URL"
 	fi
 }
 
@@ -423,6 +485,41 @@ dotfiles() {
 		msg=${1:-dotfiles: update from $(hostname 2>/dev/null || echo machine)}
 		df_repo
 		df_each save
+		# The fragments live in a public repo: refuse to publish anything that
+		# looks like a credential, unless --force is given.
+		if [ "${1:-}" != "--force" ] && ! python3 - "$DF_REPO/dotfiles" <<'PYEOF'
+import json, os, re, sys
+pat = re.compile(r"(sk-|sk_|ghp_|github_pat_|xox[bap]-|AKIA|[A-Za-z0-9_\-]{40,})")
+bad = []
+d = sys.argv[1]
+for name in os.listdir(d) if os.path.isdir(d) else []:
+    p = os.path.join(d, name)
+    if not name.endswith(".json"):
+        continue
+    try:
+        data = json.load(open(p))
+    except Exception:
+        continue
+    def walk(o, path=""):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if any(w in k.lower() for w in ("token", "secret", "password", "apikey", "api_key")):
+                    bad.append(f"{name}:{path}{k}")
+                walk(v, f"{path}{k}.")
+        elif isinstance(o, list):
+            for i, v in enumerate(o):
+                walk(v, f"{path}{i}.")
+        elif isinstance(o, str) and pat.search(o):
+            bad.append(f"{name}:{path.rstrip('.')}")
+    walk(data)
+if bad:
+    print("refusing to publish: " + ", ".join(bad))
+    sys.exit(1)
+PYEOF
+		then
+			info "! dotfiles: looks like a credential above; fix it or rerun with --force"
+			return 1
+		fi
 		git -C "$DF_REPO" add dotfiles >/dev/null 2>&1
 		if git -C "$DF_REPO" diff --cached --quiet 2>/dev/null; then
 			info "dotfiles: nothing to save"
@@ -513,6 +610,7 @@ join() {
 
 	install_self
 	install_magpie
+	install_deps
 	# A GH_TOKEN from the bootstrap is stored here, so dotfiles and the private
 	# repo work afterwards with no login.
 	if [ -n "${GH_TOKEN:-}" ] && [ ! -f "$GH_TOKEN_FILE" ]; then
@@ -633,6 +731,7 @@ case "$cmd" in
 join) join "$@" ;;
 dotfiles) dotfiles "$@" ;;
 github) github_cmd "$@" ;;
+deps) install_deps; info "deps: curl gh htop fastfetch/neofetch node bun" ;;
 sync) sync "$@" ;;
 status) status ;;
 hub) hub "$@" ;;

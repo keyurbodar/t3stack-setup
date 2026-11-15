@@ -1,0 +1,5 @@
+{
+  "idleCompaction": "onReturn",
+  "linkedEnvironmentsEnabled": true,
+  "projectSettingsFolded": true
+}
