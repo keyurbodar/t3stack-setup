@@ -20,6 +20,7 @@
 # Environment: GATEWAY_KEY, KEY_FILE, ADMIN_KEY_FILE, MODEL,
 # GITHUB_TOKEN, SYNC_PASSPHRASE, T3STACK_DEBUG=1.
 
+VERSION="2026-11-15.4"
 set -eu
 
 RELEASE="https://github.com/keyurbodar/t3stack-setup/releases/latest/download"
@@ -71,6 +72,7 @@ t3stack — one magpie hub, many machines
   t3stack github [token]                  store a GitHub token (no gh login/OTP again)
   t3stack dotfiles pull                   merge shared Claude/pi/T3 settings here
   t3stack dotfiles save [message]         capture this machine's extra keys, commit, push
+  t3stack version                         print the installed version
   t3stack update                          refresh the local command
 
 join installs magpie, trusts the hub CA, runs the local gateway and adds the
@@ -1034,13 +1036,14 @@ update_self() {
 	if [ -x "$SELF" ] && cmp -s "$SELF.new" "$SELF"; then
 		rm -f "$SELF.new"
 		install_timer
-		info "t3stack is current"
+		info "t3stack is current ($VERSION)"
 		return 0
 	fi
+	new=$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$SELF.new" | head -n1)
 	mv "$SELF.new" "$SELF"
 	chmod +x "$SELF"
 	install_timer
-	info "updated $SELF"
+	info "updated $SELF${new:+ to $new}"
 }
 
 cmd=${1:-join}
@@ -1054,6 +1057,7 @@ fleet) fleet ;;
 report) report ;;
 sync) sync "$@" ;;
 status) status ;;
+version | --version) echo "t3stack $VERSION" ;;
 hub) hub "$@" ;;
 update) update_self ;;
 help | -h | --help | usage) usage ;;
