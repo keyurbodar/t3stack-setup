@@ -477,8 +477,8 @@ install_deps() {
 	command -v curl >/dev/null 2>&1 || pkg_install curl
 	install_gh
 	command -v htop >/dev/null 2>&1 || pkg_install htop
-	if ! command -v fastfetch >/dev/null 2>&1 && ! command -v neofetch >/dev/null 2>&1; then
-		install_fastfetch || pkg_install neofetch
+	if ! command -v fastfetch >/dev/null 2>&1; then
+		install_fastfetch || { command -v neofetch >/dev/null 2>&1 || pkg_install neofetch; }
 	fi
 	install_node
 	install_bun
