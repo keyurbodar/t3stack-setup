@@ -713,13 +713,14 @@ sha = ""
 try:
     sha = hashlib.sha256(open(self_p, "rb").read()).hexdigest()[:12]
 except Exception: pass
+import re as _re
 agents = []
 for l in out("magpie ls 2>/dev/null").splitlines():
     l = l.strip()
     if not l: continue
-    parts = l.split()
+    parts = [x.strip() for x in _re.split(r"\s{2,}", l) if x.strip()]
     if len(parts) >= 2:
-        agents.append({"agent": parts[0], "model": parts[1] if parts[1] != "·" else ""})
+        agents.append({"agent": parts[0], "model": parts[1]})
 d = {
     "host": host,
     "os": platform.platform(),
