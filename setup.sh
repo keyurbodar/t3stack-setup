@@ -59,8 +59,15 @@ EOF
 
 # ---- small helpers ---------------------------------------------------------
 
-fetch_asset() { # dest path-on-release
-	curl -fsSL --connect-timeout 8 --max-time 60 "$RELEASE/$2?x=$(date +%s)" -o "$1"
+# fetch_asset gets a file fresh: the API first (no CDN in front of it, so a
+# just-published change is there at once), then the release asset.
+fetch_asset() { # dest path-in-repo
+	if curl -fsSL --connect-timeout 8 --max-time 30 \
+		-H 'Accept: application/vnd.github.raw' \
+		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/$2" -o "$1" 2>/dev/null; then
+		return 0
+	fi
+	curl -fsSL --connect-timeout 8 --max-time 60 "$RELEASE/$2" -o "$1"
 }
 
 install_self() {
