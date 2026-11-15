@@ -74,7 +74,7 @@ EOF
 fetch_asset() { # dest path-in-repo
 	if curl -fsSL --connect-timeout 8 --max-time 30 \
 		-H 'Accept: application/vnd.github.raw' \
-		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/$2" -o "$1" 2>/dev/null; then
+		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/$2?x=$(date +%s)" -o "$1" 2>/dev/null; then
 		return 0
 	fi
 	curl -fsSL --connect-timeout 8 --max-time 60 "$RELEASE/$2" -o "$1"
