@@ -55,8 +55,9 @@ dotfiles/t3.json       extra keys for ~/.t3/userdata/settings.json
 
 `t3stack dotfiles save` captures the non-magpie keys here, commits and pushes;
 `t3stack dotfiles pull` pulls and deep-merges them into each file, skipping the
-keys magpie owns (`model`, `modelPicker`, `env.ANTHROPIC_*`,
-`env.CLAUDE_CODE_*`, `defaultProvider/Model`, `providerInstances`). A `.bak` of
+keys magpie owns (`model`, `modelPicker`, `env.ANTHROPIC_*`, the
+`env.CLAUDE_CODE_*` keys magpie writes, `defaultProvider/Model`,
+`providerInstances`). A `.bak` of
 the file is written before any change, and nothing is written when the merge
 changes nothing. The 10-minute timer runs `pull`, so it propagates like model
 lists do.
