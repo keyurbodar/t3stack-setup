@@ -11,6 +11,7 @@
 #   t3stack status                 what is here
 #   t3stack hub [--client NAME]    make this machine the hub
 #   t3stack dotfiles [pull|save]   merge/save dotfile fragments for Claude, pi, T3
+#   t3stack github [token|--token-file F]  store a GitHub token for this machine
 #   t3stack update                 refresh the local command
 #
 # Environment: GATEWAY_KEY, KEY_FILE, ADMIN_KEY_FILE, MODEL,
@@ -28,6 +29,12 @@ ID=${ID:-hub}
 SELF="$HOME/.local/bin/t3stack"
 
 export PATH="$HOME/.local/bin:$HOME/.pi/agent/bin:$PATH"
+# A stored token makes gh, git and the private-repo clone work with no login.
+GH_TOKEN_FILE="$HOME/.config/t3stack/github.token"
+if [ -z "${GH_TOKEN:-}" ] && [ -f "$GH_TOKEN_FILE" ]; then
+	GH_TOKEN=$(tr -d '\r\n' <"$GH_TOKEN_FILE")
+	export GH_TOKEN
+fi
 [ -n "${T3STACK_DEBUG:-}" ] && set -x
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -42,6 +49,7 @@ t3stack — one magpie hub, many machines
   t3stack sync                            magpie's encrypted config/skills sync
   t3stack status                          gateway, providers, agents
   t3stack hub [--client NAME] [--port N]  make this machine the hub
+  t3stack github [token]                  store a GitHub token (no gh login/OTP again)
   t3stack dotfiles pull                   merge shared Claude/pi/T3 settings here
   t3stack dotfiles save [message]         capture this machine's extra keys, commit, push
   t3stack update                          refresh the local command
@@ -215,6 +223,76 @@ WantedBy=timers.target
 EOF
 	systemctl --user daemon-reload >/dev/null 2>&1 || return 0
 	systemctl --user enable --now t3stack-models.timer >/dev/null 2>&1 || true
+}
+
+# ---- github -----------------------------------------------------------------
+install_gh() {
+	command -v gh >/dev/null 2>&1 && return 0
+	command -v python3 >/dev/null 2>&1 || die "github: python3 is needed to install gh"
+	os=$(uname -s) arch=$(uname -m)
+	case "$os" in
+	Linux) o=linux ;;
+	Darwin) o=macOS ;;
+	*) die "github: unsupported OS for gh: $os" ;;
+	esac
+	case "$arch" in
+	x86_64 | amd64) a=amd64 ;;
+	aarch64 | arm64) a=arm64 ;;
+	*) die "github: unsupported architecture for gh: $arch" ;;
+	esac
+	tag=$(curl -fsSL --max-time 20 https://api.github.com/repos/cli/cli/releases/latest |
+		python3 -c 'import json,sys;print(json.load(sys.stdin)["tag_name"])') ||
+		die "github: could not read the gh release"
+	ver=${tag#v}
+	tmp=$(mktemp -d)
+	case "$o" in
+	linux)
+		curl -fsSL --max-time 120 "https://github.com/cli/cli/releases/download/$tag/gh_${ver}_linux_${a}.tar.gz" -o "$tmp/gh.tar.gz" ||
+			die "github: could not download gh"
+		tar -xzf "$tmp/gh.tar.gz" -C "$tmp"
+		install -m755 "$tmp/gh_${ver}_linux_${a}/bin/gh" "$HOME/.local/bin/gh"
+		;;
+	macOS)
+		curl -fsSL --max-time 120 "https://github.com/cli/cli/releases/download/$tag/gh_${ver}_macOS_${a}.zip" -o "$tmp/gh.zip" ||
+			die "github: could not download gh"
+		unzip -q "$tmp/gh.zip" -d "$tmp"
+		install -m755 "$tmp/gh_${ver}_macOS_${a}/bin/gh" "$HOME/.local/bin/gh"
+		;;
+	esac
+	rm -rf "$tmp"
+	command -v gh >/dev/null 2>&1 || die "github: gh did not install"
+}
+
+github_cmd() {
+	token=""
+	case "${1:-}" in
+	--token-file) token=$(cat "${2:?--token-file needs a path}") ;;
+	"") ;;
+	*) token=$1 ;;
+	esac
+	[ -n "$token" ] || token=${GH_TOKEN:-}
+	[ -n "$token" ] || [ -f "$GH_TOKEN_FILE" ] && token=$(tr -d '\r\n' <"$GH_TOKEN_FILE")
+	if [ -z "$token" ] && [ -r /dev/tty ]; then
+		printf 'GitHub token (repo scope, or fine-grained read/write on t3stack): ' >/dev/tty
+		IFS= read -r token </dev/tty || token=""
+	fi
+	[ -n "$token" ] || die "github: no token given"
+	case "$token" in
+	ghp_* | github_pat_* | gho_* | ghu_*) ;;
+	*) info "! that does not look like a GitHub token; trying anyway" ;;
+	esac
+	mkdir -p "$(dirname "$GH_TOKEN_FILE")"
+	printf '%s\n' "$token" >"$GH_TOKEN_FILE"
+	chmod 600 "$GH_TOKEN_FILE"
+	export GH_TOKEN=$token
+	install_gh
+	if printf '%s' "$token" | gh auth login --with-token >/dev/null 2>&1; then
+		gh auth setup-git >/dev/null 2>&1 || true
+		info "github: token stored, gh and git are set up"
+	else
+		info "! github: gh rejected the token; kept at $GH_TOKEN_FILE"
+	fi
+	gh auth status 2>&1 | sed -n '1,5p'
 }
 
 # ---- dotfiles --------------------------------------------------------------
@@ -544,6 +622,7 @@ cmd=${1:-join}
 case "$cmd" in
 join) join "$@" ;;
 dotfiles) dotfiles "$@" ;;
+github) github_cmd "$@" ;;
 sync) sync "$@" ;;
 status) status ;;
 hub) hub "$@" ;;

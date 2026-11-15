@@ -41,6 +41,21 @@ in your password manager.
 with "the hub rejected this key", a network failure says so, and only then is
 anything written.
 
+## GitHub token (no logins)
+
+Create a token once — classic with `repo` (and `workflow` if needed), or
+fine-grained limited to `t3stack` + `t3stack-setup` with Contents: read/write —
+then on each machine:
+
+```sh
+t3stack github ghp_…          # or --token-file /, or paste when asked
+```
+
+It stores it 0600 at `~/.config/t3stack/github.token`, sets `GH_TOKEN`, installs
+`gh` if missing, runs `gh auth setup-git`, and from then on `dotfiles`, `sync`
+and the private-repo clone work with no login, no OTP. Rotate by running the
+command again with the new token.
+
 ## Dotfiles
 
 magpie owns `model` and its gateway `env` in `~/.claude/settings.json` (and the
