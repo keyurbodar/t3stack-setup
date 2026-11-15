@@ -790,8 +790,16 @@ sha = ""
 try:
     sha = hashlib.sha256(open(self_p, "rb").read()).hexdigest()[:12]
 except Exception: pass
+tools = {}
+for c in ("bun", "node", "gh", "curl", "htop", "fastfetch", "neofetch", "claude", "pi", "t3", "magpie"):
+    if out(f"command -v {c} >/dev/null 2>&1; echo $?").strip() == "0":
+        v = out(f"{c} --version 2>/dev/null | head -n1").strip()
+        tools[c] = (v[:40] or "yes")
+    else:
+        tools[c] = ""
 d = {
     "host": host,
+    "tools": tools,
     "os": platform.platform(),
     "magpie": out("magpie --version 2>/dev/null").replace("magpie ", ""),
     "t3stack": sha,
@@ -848,9 +856,10 @@ if not rows:
     print("no readable reports")
     sys.exit(0)
 w = max(len(r.get("host","")) for r in rows)
-print(f"{'HOST'.ljust(w)}  {'MAGPIE':9}  {'T3STACK':12}  REPORTED")
+print(f"{'HOST'.ljust(w)}  {'MAGPIE':9}  {'T3STACK':12}  {'REPORTED':18}  MISSING")
 for r in rows:
-    print(f"{r.get('host','').ljust(w)}  {r.get('magpie',''):9}  {r.get('t3stack',''):12}  {r.get('seen','')}")
+    missing = ",".join(k for k, v in (r.get("tools") or {}).items() if not v) or "-"
+    print(f"{r.get('host','').ljust(w)}  {r.get('magpie',''):9}  {r.get('t3stack',''):12}  {r.get('seen',''):18}  {missing}")
 PYEOF
 	rm -rf "$tmp"
 }
@@ -1076,7 +1085,16 @@ case "$cmd" in
 join) join "$@" ;;
 dotfiles) dotfiles "$@" ;;
 github) github_cmd "$@" ;;
-deps) install_deps; info "deps: curl gh htop fastfetch/neofetch node bun" ;;
+deps)
+	if [ "${1:-}" = "--check" ]; then
+		for c in curl gh htop fastfetch neofetch node bun claude pi t3 magpie; do
+			if command -v "$c" >/dev/null 2>&1; then printf '  ok       %s\n' "$c"; else printf '  MISSING  %s\n' "$c"; fi
+		done
+	else
+		install_deps
+		info "deps: curl gh htop fastfetch/neofetch node bun"
+	fi
+	;;
 fleet) fleet ;;
 report) report ;;
 sync) sync "$@" ;;
