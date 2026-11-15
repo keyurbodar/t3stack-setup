@@ -234,7 +234,7 @@ install_timer() {
 Description=Refresh magpie model lists and shared dotfiles
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '$SELF update >/dev/null 2>&1 || true; $bin sync; $SELF dotfiles pull'
+ExecStart=/bin/sh -c '$SELF update >/dev/null 2>&1 || true; $SELF deps >/dev/null 2>&1 || true; $bin sync; $SELF dotfiles pull'
 EOF
 	cat >"$dir/t3stack-models.timer.new" <<EOF
 [Unit]
@@ -392,6 +392,17 @@ install_deps() {
 	fi
 	install_node
 	install_bun
+	# Anything from packages.txt in this repo, installed if missing.
+	tmp=$(mktemp)
+	if fetch_asset "$tmp" packages.txt 2>/dev/null; then
+		while read -r line; do
+			pkg=${line%%#*}
+			pkg=$(printf '%s' "$pkg" | tr -d '[:space:]')
+			[ -n "$pkg" ] || continue
+			command -v "$pkg" >/dev/null 2>&1 || pkg_install "$pkg"
+		done <"$tmp"
+	fi
+	rm -f "$tmp"
 }
 
 # ---- dependencies -----------------------------------------------------------
@@ -482,6 +493,17 @@ install_deps() {
 	fi
 	install_node
 	install_bun
+	# Anything from packages.txt in this repo, installed if missing.
+	tmp=$(mktemp)
+	if fetch_asset "$tmp" packages.txt 2>/dev/null; then
+		while read -r line; do
+			pkg=${line%%#*}
+			pkg=$(printf '%s' "$pkg" | tr -d '[:space:]')
+			[ -n "$pkg" ] || continue
+			command -v "$pkg" >/dev/null 2>&1 || pkg_install "$pkg"
+		done <"$tmp"
+	fi
+	rm -f "$tmp"
 }
 
 # ---- dotfiles --------------------------------------------------------------

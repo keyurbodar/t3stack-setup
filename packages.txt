@@ -1,0 +1,7 @@
+# Packages every t3stack machine keeps installed (one per line, # comments).
+# The 10-minute timer installs anything here that is missing.
+# Examples:
+# htop
+# jq
+# ripgrep
+# tmux
