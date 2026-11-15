@@ -11,7 +11,7 @@
 #   t3stack status                 what is here
 #   t3stack hub [--client NAME]    make this machine the hub
 #   t3stack dotfiles [pull|save]   merge/save dotfile fragments for Claude, pi, T3
-#   t3stack fleet                  every machine's version, models and agents
+#   t3stack fleet                  every machine's version and last report
 #   t3stack report                 publish this machine's status
 #   t3stack deps                   install curl, gh, htop, fastfetch, node, bun
 #   t3stack github [token|--token-file F]  store a GitHub token for this machine
@@ -66,7 +66,7 @@ t3stack — one magpie hub, many machines
   t3stack sync                            magpie's encrypted config/skills sync
   t3stack status                          gateway, providers, agents
   t3stack hub [--client NAME] [--port N]  make this machine the hub
-  t3stack fleet                           every machine's version, models and agents
+  t3stack fleet                           every machine's version and last report
   t3stack deps                            install curl, gh, htop, fastfetch, node, bun
   t3stack github [token]                  store a GitHub token (no gh login/OTP again)
   t3stack dotfiles pull                   merge shared Claude/pi/T3 settings here
@@ -795,10 +795,9 @@ if not rows:
     print("no readable reports")
     sys.exit(0)
 w = max(len(r.get("host","")) for r in rows)
-print(f"{'HOST'.ljust(w)}  {'MAGPIE':9}  {'T3STACK':8}  {'MODELS':6}  AGENTS")
+print(f"{'HOST'.ljust(w)}  {'MAGPIE':9}  {'T3STACK':12}  REPORTED")
 for r in rows:
-    agents = ", ".join(f"{a['agent']}={a['model']}" for a in r.get("agents", []) if a.get("model"))
-    print(f"{r.get('host','').ljust(w)}  {r.get('magpie',''):9}  {r.get('t3stack',''):8}  {str(r.get('models','')):6}  {agents}")
+    print(f"{r.get('host','').ljust(w)}  {r.get('magpie',''):9}  {r.get('t3stack',''):12}  {r.get('seen','')}")
 PYEOF
 	rm -rf "$tmp"
 }
