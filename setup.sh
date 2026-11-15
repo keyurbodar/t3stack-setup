@@ -810,9 +810,22 @@ PYEOF
 )
 	[ -n "$info" ] || return 0
 	remote=$(fleet_file "$host.json" || true)
-	if [ "$remote" = "$info" ]; then
+	tmpi=$(mktemp)
+	printf '%s' "$info" >"$tmpi"
+	if [ -n "$remote" ] && printf '%s' "$remote" | python3 -c '
+import json, sys
+try:
+    a = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+b = json.load(open(sys.argv[1]))
+a.pop("seen", None)
+b.pop("seen", None)
+sys.exit(0 if a == b else 1)' "$tmpi"; then
+		rm -f "$tmpi"
 		return 0
 	fi
+	rm -f "$tmpi"
 	b64=$(printf '%s' "$info" | base64 | tr -d '\n')
 	_frepo=$(fleet_repo)
 	args="-X PUT repos/$_frepo/contents/fleet/$host.json -f message=fleet:$host -f content=$b64"
