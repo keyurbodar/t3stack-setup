@@ -239,13 +239,7 @@ decrypt_sync_passphrase() { decrypt_blob hub/sync.pass.enc; }
 
 # Pick a sane default from what the hub serves.
 pick_model() {
-	list=$(magpie models 2>/dev/null | awk -v p="$ID/" 'index($0, p) == 3 { print $1 }')
-	[ -n "$list" ] || return 1
-	for want in deepseek-v4.1-flash claude-sonnet-5-5 sonnet glm-5.3 kimi-k3.1-pro; do
-		m=$(printf '%s\n' "$list" | grep -E "/$want(\[|$)" | head -n1 || true)
-		[ -n "$m" ] && { printf '%s' "$m"; return 0; }
-	done
-	printf '%s\n' "$list" | head -n1
+	magpie models 2>/dev/null | awk -v p="$ID/" 'index($0, p) == 3 { print $1; exit }'
 }
 
 # A timer that refreshes model lists even if magpie's own tick is stale; it
@@ -743,19 +737,12 @@ sha = ""
 try:
     sha = hashlib.sha256(open(self_p, "rb").read()).hexdigest()[:12]
 except Exception: pass
-import re as _re
-agents = []
-for l in out("magpie ls 2>/dev/null").splitlines():
-    l = l.strip()
-    if not l: continue
-    parts = [x.strip() for x in _re.split(r"\s{2,}", l) if x.strip()]
-    if len(parts) >= 2:
-        agents.append({"agent": parts[0], "model": parts[1]})
 d = {
     "host": host,
     "os": platform.platform(),
     "magpie": out("magpie --version 2>/dev/null").replace("magpie ", ""),
     "t3stack": sha,
+    "seen": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
 }
 print(json.dumps(d, sort_keys=True))
 PYEOF
