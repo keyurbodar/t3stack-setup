@@ -872,6 +872,7 @@ update_self() {
 	fi
 	if [ -x "$SELF" ] && cmp -s "$SELF.new" "$SELF"; then
 		rm -f "$SELF.new"
+		install_timer
 		info "t3stack is current"
 		return 0
 	fi
