@@ -235,11 +235,12 @@ resolve_key() {
 
 # The backup repo's token travels encrypted with the join key, so a machine
 # that has joined can sync without anyone typing a token.
-decrypt_blob() { # path-in-repo
-	jk=""
-	for f in "${KEY_FILE:-}" "$HOME/.config/t3stack/gateway.key"; do
-		if [ -n "$f" ] && [ -f "$f" ]; then jk=$(tr -d '\r\n' <"$f"); break; fi
-	done
+decrypt_blob() { # path-in-repo, sealed with the sync passphrase
+	jk=${SYNC_PASSPHRASE:-}
+	if [ -z "$jk" ] && [ -f "$HOME/.config/magpie/sync.json" ]; then
+		jk=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("passphrase",""))' \
+			"$HOME/.config/magpie/sync.json" 2>/dev/null || true)
+	fi
 	[ -n "$jk" ] || return 1
 	command -v openssl >/dev/null 2>&1 || return 1
 	tmp=$(mktemp)
@@ -253,7 +254,6 @@ decrypt_blob() { # path-in-repo
 }
 
 decrypt_github_token() { decrypt_blob hub/github.token.enc; }
-decrypt_sync_passphrase() { decrypt_blob hub/sync.pass.enc; }
 
 # Pick a sane default from what the hub serves.
 pick_model() {
@@ -936,7 +936,11 @@ join() {
 	https://*) trust_hub_ca ;;
 	esac
 
-	[ -n "$key" ] || key=$(resolve_key) || die "join: no join key (GATEWAY_KEY=… or ~/.config/t3stack/gateway.key)"
+	if [ -z "$key" ] && ! key=$(resolve_key 2>/dev/null); then
+		conf_load
+		key=$(conf_get join_key)
+	fi
+	[ -n "$key" ] || die "join: no join key (GATEWAY_KEY=… or ~/.config/t3stack/gateway.key)"
 	case "$key" in
 	*[[:space:]]*) die "join: the join key has whitespace in it" ;;
 	esac
@@ -1007,13 +1011,20 @@ sync() {
 	install_magpie
 	install_deps
 	install_timer
-	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
-	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(decrypt_github_token || true)
+	# The passphrase comes first: the token is sealed with it.
 	if [ -z "${SYNC_PASSPHRASE:-}" ] && [ -f "$HOME/.config/magpie/sync.json" ]; then
 		SYNC_PASSPHRASE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("passphrase",""))' \
 			"$HOME/.config/magpie/sync.json" 2>/dev/null || true)
 	fi
-	[ -n "${SYNC_PASSPHRASE:-}" ] || SYNC_PASSPHRASE=$(decrypt_sync_passphrase || true)
+	if [ -z "${SYNC_PASSPHRASE:-}" ] && (exec </dev/tty) 2>/dev/null; then
+		printf 'Sync passphrase: ' >/dev/tty
+		stty -echo </dev/tty 2>/dev/null || true
+		IFS= read -r SYNC_PASSPHRASE </dev/tty || SYNC_PASSPHRASE=""
+		stty echo </dev/tty 2>/dev/null || true
+		printf '\n' >/dev/tty
+	fi
+	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
+	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(decrypt_github_token || true)
 
 	if magpie github 2>/dev/null | head -n1 | grep -q "${repo#github://}"; then
 		magpie github now
