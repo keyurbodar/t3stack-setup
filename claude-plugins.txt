@@ -1,0 +1,3 @@
+# Claude Code plugins every machine keeps installed.
+# <marketplace>  <plugin-id>   (# comments allowed)
+cursor/plugins  pstack@cursor-plugins

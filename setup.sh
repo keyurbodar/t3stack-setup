@@ -414,6 +414,7 @@ install_deps() {
 	fi
 	install_node
 	install_bun
+	install_claude_plugins
 	# Anything from packages.txt in this repo, installed if missing.
 	tmp=$(mktemp)
 	if fetch_asset "$tmp" packages.txt 2>/dev/null; then
@@ -515,6 +516,7 @@ install_deps() {
 	fi
 	install_node
 	install_bun
+	install_claude_plugins
 	# Anything from packages.txt in this repo, installed if missing.
 	tmp=$(mktemp)
 	if fetch_asset "$tmp" packages.txt 2>/dev/null; then
@@ -704,6 +706,32 @@ PYEOF
 		;;
 	*) die "dotfiles: pull | save [message] | status" ;;
 	esac
+}
+
+# ---- claude plugins ----------------------------------------------------------
+# Declarative via claude-plugins.txt in this repo; Claude does the installing.
+install_claude_plugins() {
+	command -v claude >/dev/null 2>&1 || return 0
+	tmp=$(mktemp)
+	if ! fetch_asset "$tmp" claude-plugins.txt 2>/dev/null; then
+		rm -f "$tmp"
+		return 0
+	fi
+	while read -r line; do
+		line=${line%%#*}
+		mp=$(printf '%s' "$line" | awk '{print $1}')
+		pl=$(printf '%s' "$line" | awk '{print $2}')
+		[ -n "$mp" ] && [ -n "$pl" ] || continue
+		if ! claude plugin marketplace list 2>/dev/null | grep -q -- "$mp"; then
+			info "adding Claude marketplace $mp"
+			timeout 180 claude plugin marketplace add "$mp" --json >/dev/null 2>&1 || info "! marketplace $mp failed"
+		fi
+		if ! claude plugin list 2>/dev/null | grep -q -- "$pl"; then
+			info "installing Claude plugin $pl"
+			timeout 300 claude plugin install "$pl" -y --json >/dev/null 2>&1 || info "! plugin $pl failed"
+		fi
+	done <"$tmp"
+	rm -f "$tmp"
 }
 
 # ---- fleet ------------------------------------------------------------------
