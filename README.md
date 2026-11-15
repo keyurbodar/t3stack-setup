@@ -6,13 +6,19 @@ command. Nothing is fetched again unless you run `t3stack update`.
 ## Clients
 
 ```sh
-curl -fsSL https://github.com/keyurbodar/t3stack-setup/releases/latest/download/setup.sh | sh
+curl -fsSL https://github.com/keyurbodar/t3stack-setup/releases/latest/download/setup.sh \
+  | sh -s -- join <join-key>
 ```
 
-That installs magpie **and itself** as `~/.local/bin/t3stack`, trusts the hub
-CA, runs the local gateway, adds the hub as a provider, installs Claude Code
-and pi if they are missing, and points every agent magpie finds at the hub's
-model. Then:
+That installs magpie **and itself** as `~/.local/bin/t3stack`, plus the basics
+(`curl`, `gh`, `htop`, `fastfetch` or `neofetch`, `node`, `bun`) where they are
+missing, trusts the hub CA, runs the local gateway, adds the hub as a provider,
+installs Claude Code and pi if they are missing, and points every agent magpie
+finds at the hub's model.
+
+```sh
+t3stack deps             # same installs, on demand
+``` Then:
 
 ```sh
 t3stack status                  # gateway, join key, providers, agents
@@ -41,7 +47,11 @@ in your password manager.
 with "the hub rejected this key", a network failure says so, and only then is
 anything written.
 
-## GitHub token (no logins)
+## GitHub token (only where you push)
+
+Clients don't need one: `dotfiles pull` reads this public repo anonymously, and
+model lists come from the hub. A token is only needed where you run
+`t3stack dotfiles save` (push) or `t3stack sync` (private backup).
 
 Create a token once — classic with `repo` (and `workflow` if needed), or
 fine-grained limited to `t3stack` + `t3stack-setup` with Contents: read/write —
