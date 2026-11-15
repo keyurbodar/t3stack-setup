@@ -1016,6 +1016,10 @@ sync() {
 		SYNC_PASSPHRASE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("passphrase",""))' \
 			"$HOME/.config/magpie/sync.json" 2>/dev/null || true)
 	fi
+	if [ -z "${SYNC_PASSPHRASE:-}" ]; then
+		conf_load
+		SYNC_PASSPHRASE=$(conf_get sync_pass)
+	fi
 	if [ -z "${SYNC_PASSPHRASE:-}" ] && (exec </dev/tty) 2>/dev/null; then
 		printf 'Sync passphrase: ' >/dev/tty
 		stty -echo </dev/tty 2>/dev/null || true
