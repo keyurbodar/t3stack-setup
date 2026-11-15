@@ -5,4 +5,3 @@
 jq
 # ripgrep
 tmux
-ncdu
