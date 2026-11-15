@@ -23,8 +23,8 @@
 VERSION="2026-11-15.4"
 set -eu
 
-RELEASE="https://github.com/keyurbodar/t3stack-setup/releases/latest/download"
-CA_URL="$RELEASE/hub-ca.crt"
+TOOL_REPO="${T3STACK_REPO:-keyurbodar/t3stack-setup}"
+REPO_DIR="$HOME/.local/share/t3stack-setup"
 CONF_CACHE="$HOME/.config/t3stack/t3stack.conf"
 PORT=3425
 ID=${ID:-hub}
@@ -99,14 +99,30 @@ gh_auth() {
 	return 1
 }
 
-fetch_asset() { # dest path-in-repo
-	auth=$(gh_auth || true)
-	if [ -n "$auth" ]; then
-		curl -fsSL --connect-timeout 8 --max-time 30 -H "$auth" \
-			-H 'Accept: application/vnd.github.raw' \
-			"https://api.github.com/repos/${T3STACK_REPO:-keyurbodar/t3stack-setup}/contents/$2?x=$(date +%s)" -o "$1" 2>/dev/null && return 0
+# The repository is the distribution: one clone, pulled at most once a minute,
+# and every file (script, config, packages, dotfiles, CA) read from it. No
+# releases, no assets.
+repo_sync() {
+	command -v git >/dev/null 2>&1 || return 1
+	mkdir -p "$(dirname "$REPO_DIR")"
+	if [ -d "$REPO_DIR/.git" ]; then
+		[ -f "$REPO_DIR/.pulled" ] && [ -n "$(find "$REPO_DIR/.pulled" -mmin -1 2>/dev/null)" ] && return 0
+		git -C "$REPO_DIR" pull --ff-only -q 2>/dev/null || return 1
+	else
+		git clone -q "https://github.com/$TOOL_REPO.git" "$REPO_DIR" 2>/dev/null || return 1
 	fi
-	curl -fsSL --connect-timeout 8 --max-time 60 "$RELEASE/$2" -o "$1"
+	touch "$REPO_DIR/.pulled" 2>/dev/null || true
+}
+
+fetch_asset() { # dest path-in-repo
+	if repo_sync && [ -f "$REPO_DIR/$2" ]; then
+		cp "$REPO_DIR/$2" "$1"
+		return 0
+	fi
+	auth=$(gh_auth || true)
+	[ -n "$auth" ] && curl -fsSL --connect-timeout 8 --max-time 30 -H "$auth" \
+		-H 'Accept: application/vnd.github.raw' \
+		"https://api.github.com/repos/$TOOL_REPO/contents/$2?x=$(date +%s)" -o "$1" 2>/dev/null
 }
 
 install_self() {
@@ -549,8 +565,7 @@ install_deps() {
 # ---- dotfiles --------------------------------------------------------------
 # Only the keys magpie does not own are shared; magpie's keys are stripped from
 # the fragment on the way in and out, so the two never fight.
-DF_REPO="$HOME/.local/share/t3stack-setup"
-DF_URL="https://github.com/keyurbodar/t3stack-setup.git"
+DF_REPO="$REPO_DIR"
 DF_CLAUDE="$HOME/.claude/settings.json"
 DF_PI="$HOME/.pi/agent/settings.json"
 DF_T3="$HOME/.t3/userdata/settings.json"
@@ -560,13 +575,7 @@ DF_PROTECT_T3='providerInstances'
 
 df_repo() {
 	command -v git >/dev/null 2>&1 || die "dotfiles: git is not installed"
-	if [ -d "$DF_REPO/.git" ]; then
-		git -C "$DF_REPO" pull --ff-only -q 2>/dev/null || info "! dotfiles: pull failed (network)"
-	else
-		mkdir -p "$(dirname "$DF_REPO")"
-		git clone -q "$DF_URL" "$DF_REPO" 2>/dev/null ||
-			die "dotfiles: cannot clone $DF_URL"
-	fi
+	repo_sync || info "! dotfiles: pull failed (network)"
 }
 
 # df_json <merge|save> <local-file> <fragment-file> <protected-paths>
@@ -1031,7 +1040,7 @@ update_self() {
 	mkdir -p "$HOME/.local/bin"
 	if ! fetch_asset "$SELF.new" setup.sh; then
 		rm -f "$SELF.new"
-		die "t3stack update: could not download the release asset"
+		die "t3stack update: could not read setup.sh from $TOOL_REPO"
 	fi
 	if [ -x "$SELF" ] && cmp -s "$SELF.new" "$SELF"; then
 		rm -f "$SELF.new"
