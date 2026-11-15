@@ -32,8 +32,9 @@ t3stack dotfiles save [msg]     # capture this machine's extra keys, commit, pus
 Flags: `--no-install` (don't install Claude Code/pi), `--no-wire` (leave every
 agent's model exactly as it is), `--model hub/provider/model`, `--id`.
 
-The default model is picked sensibly (`deepseek-v4.1-flash`, else a sonnet /
-glm / kimi, else the first the hub serves).
+The default model is simply the first one the hub serves — no model or provider
+is named in this repository. Hub, sync repo and fleet repo live in
+`t3stack.conf`.
 
 ### The join key
 
