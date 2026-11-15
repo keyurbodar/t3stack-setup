@@ -869,7 +869,7 @@ if not rows:
     print("no readable reports")
     sys.exit(0)
 w = max(len(r.get("host","")) for r in rows)
-print(f"{'HOST'.ljust(w)}  {'MAGPIE':9}  {'T3STACK':12}  {'REPORTED':18}  MISSING")
+print(f"{'HOST'.ljust(w)}  {'MAGPIE':9}  {'T3STACK':12}  {'LAST CHANGE':18}  MISSING")
 for r in rows:
     missing = ",".join(k for k, v in (r.get("tools") or {}).items() if not v) or "-"
     print(f"{r.get('host','').ljust(w)}  {r.get('magpie',''):9}  {r.get('t3stack',''):12}  {r.get('seen',''):18}  {missing}")
