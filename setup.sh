@@ -178,6 +178,35 @@ pick_model() {
 	printf '%s\n' "$list" | head -n1
 }
 
+# A timer that refreshes model lists even if magpie's own tick is stale; it
+# also writes the new list into the agents (T3, Claude Code, pi).
+install_timer() {
+	[ "$(uname -s)" = "Linux" ] || return 0
+	command -v systemctl >/dev/null 2>&1 || return 0
+	bin=$(command -v magpie 2>/dev/null) || return 0
+	dir="$HOME/.config/systemd/user"
+	mkdir -p "$dir"
+	cat >"$dir/t3stack-models.service" <<EOF
+[Unit]
+Description=Refresh magpie model lists
+[Service]
+Type=oneshot
+ExecStart=$bin sync
+EOF
+	cat >"$dir/t3stack-models.timer" <<EOF
+[Unit]
+Description=Refresh magpie model lists every 10 minutes
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+Unit=t3stack-models.service
+[Install]
+WantedBy=timers.target
+EOF
+	systemctl --user daemon-reload >/dev/null 2>&1 || return 0
+	systemctl --user enable --now t3stack-models.timer >/dev/null 2>&1 || true
+}
+
 # ---- hub -------------------------------------------------------------------
 
 hub() {
@@ -282,6 +311,7 @@ join() {
 		info "starting the local gateway service"
 		magpie daemon install >/dev/null
 		wait_gateway || die "local gateway is not answering: magpie daemon status"
+		install_timer
 		;;
 	Darwin) gateway_up || info "! macOS: open magpie once; it serves the gateway from the menu bar." ;;
 	esac
@@ -320,6 +350,7 @@ sync() {
 	repo=${1:-$REPO_DEFAULT}
 	install_self
 	install_magpie
+	install_timer
 	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
 	if [ -z "${SYNC_PASSPHRASE:-}" ] && [ -f "$HOME/.config/magpie/sync.json" ]; then
 		SYNC_PASSPHRASE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("passphrase",""))' \
