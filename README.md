@@ -1,145 +1,66 @@
 # t3stack-setup
 
-One magpie hub, many machines — install once, then use the local `t3stack`
-command. Nothing is fetched again unless you run `t3stack update`.
+One magpie hub, many machines. Install once per machine; after that a 3-minute
+converge keeps the script, tools, plugins, dotfiles, models and config current.
+No releases, no CDN, no prompts.
 
-## Clients
-
-```sh
-git clone -q https://github.com/keyurbodar/t3stack-setup ~/.local/share/t3stack-setup
-sh ~/.local/share/t3stack-setup/setup.sh
-```
-
-Nothing else: the hub and a capped join key come from `t3stack.conf`, the CA is
-pinned there too. The only thing that ever asks is `t3stack sync`, for the
-passphrase that seals the private backup (needed because the token is sealed
-with it).
-
-(The repository is the distribution — one clone, pulled at most once a minute.
-There are no releases, tags or assets to go stale. If `raw.githubusercontent.com`
-is blocked, the API works too:
-`curl -fsSL -H 'Accept: application/vnd.github.raw' https://api.github.com/repos/keyurbodar/t3stack-setup/contents/setup.sh | sh -s -- join <key>`.)
-
-That installs magpie **and itself** as `~/.local/bin/t3stack`, plus the basics
-(`curl`, `gh`, `htop`, `fastfetch` or `neofetch`, `node`, `bun`) where they are
-missing, trusts the hub CA, runs the local gateway, adds the hub as a provider,
-installs Claude Code and pi if they are missing, and points every agent magpie
-finds at the hub's model.
+## Install (one line per machine)
 
 ```sh
-t3stack deps             # same installs, on demand
-``` Then:
+git clone -q https://github.com/keyurbodar/t3stack-setup ~/.local/share/t3stack-setup && sh ~/.local/share/t3stack-setup/setup.sh
+```
+
+Already cloned? `git -C ~/.local/share/t3stack-setup pull -q && sh ~/.local/share/t3stack-setup/setup.sh`
+
+It installs magpie and itself as `~/.local/bin/t3stack`, the basics (`curl gh
+htop fastfetch node bun`), trusts the hub CA, runs the local gateway, adds the
+hub as a provider, installs Claude Code + pi + the plugins in
+`claude-plugins.txt`, and points every agent at the hub. Nothing is typed: hub,
+join key and CA pin come from `t3stack.conf`.
+
+## Everyday
 
 ```sh
-t3stack status                  # gateway, join key, providers, agents
-t3stack join <key>              # re-join / switch hub (optional key)
-t3stack sync                    # magpie's encrypted config + skills sync
-t3stack update                  # refresh the local command
-t3stack dotfiles pull           # merge shared Claude/pi/T3 settings here
-t3stack dotfiles save [msg]     # capture this machine's extra keys, commit, push
+t3stack                 # join / re-join (no args needed)
+t3stack fleet           # every machine: version, last report, missing tools
+t3stack status          # this machine: gateway, providers, agents
+t3stack deps --check    # what is present / missing here
+t3stack sync            # private config/skills backup
+t3stack update          # refresh the command (the timer does this too)
+t3stack dotfiles pull   # merge shared Claude/pi/T3 settings
+t3stack dotfiles save   # publish this machine's extra settings
+t3stack version
 ```
 
-Flags: `--no-install` (don't install Claude Code/pi), `--no-wire` (leave every
-agent's model exactly as it is), `--model hub/provider/model`, `--id`.
+## How it converges
 
-The default model is simply the first one the hub serves — no model or provider
-is named in this repository. Hub, sync repo and fleet repo live in
-`t3stack.conf`.
-
-### The join key
-
-There is no key in this repository. A key is looked up in this order: the key
-argument, `GATEWAY_KEY`, `KEY_FILE`, `~/.config/t3stack/gateway.key`, the private
-repo `keyurbodar/t3stack` through `gh`, `ADMIN_KEY`/`ADMIN_KEY_FILE` (mints a
-key named after the machine), then a prompt. It is short and private — keep it
-in your password manager.
-
-`join` checks the key against the hub before changing anything: `401/403` stops
-with "the hub rejected this key", a network failure says so, and only then is
-anything written.
-
-## GitHub token (only where you push)
-
-Clients don't need one typed: `dotfiles pull` reads this public repo anonymously,
-and `t3stack sync` decrypts the backup token from `hub/github.token.enc` with the
-join key that machine already has (`~/.config/t3stack/gateway.key`), so it asks
-only for the sync passphrase, once. A token is needed only where you run
-`t3stack dotfiles save` (push) with a token of your own.
-
-Create a token once — classic with `repo` (and `workflow` if needed), or
-fine-grained limited to `t3stack` + `t3stack-setup` with Contents: read/write —
-then on each machine:
-
-```sh
-t3stack github ghp_…          # or --token-file /, or paste when asked
-```
-
-It stores it 0600 at `~/.config/t3stack/github.token`, sets `GH_TOKEN`, installs
-`gh` if missing, runs `gh auth setup-git`, and from then on `dotfiles`, `sync`
-and the private-repo clone work with no login, no OTP. Rotate by running the
-command again with the new token.
-
-## Claude Code plugins
-
-`claude-plugins.txt` names what every machine installs into Claude Code:
+A systemd user timer runs every 3 minutes:
 
 ```
-<marketplace>  <plugin-id>
-cursor/plugins  pstack@cursor-plugins
+t3stack update → t3stack deps → magpie sync → t3stack sync → dotfiles pull → report
 ```
 
-The converge run adds the marketplace once and installs the plugin if it is
-missing. Uninstall it anywhere and it comes back on the next tick.
+So editing this repo (script, `packages.txt`, `claude-plugins.txt`, `dotfiles/`,
+`t3stack.conf`) or the hub (providers, keys, visibility) reaches every machine
+within 3 minutes, with no commands anywhere.
 
-## Dotfiles
+## Adding things
 
-magpie owns `model` and its gateway `env` in `~/.claude/settings.json` (and the
-provider/model fields in pi and T3). Everything else — permissions, hooks,
-experiments, statusline — is shared through this repo:
-
-```
-dotfiles/claude.json   extra keys for ~/.claude/settings.json
-dotfiles/pi.json       extra keys for ~/.pi/agent/settings.json
-dotfiles/t3.json       extra keys for ~/.t3/userdata/settings.json
-```
-
-`t3stack dotfiles save` captures the non-magpie keys here, commits and pushes;
-`t3stack dotfiles pull` pulls and deep-merges them into each file, skipping the
-keys magpie owns (`model`, `modelPicker`, `env.ANTHROPIC_*`, the
-`env.CLAUDE_CODE_*` keys magpie writes, `defaultProvider/Model`,
-`providerInstances`). A `.bak` of
-the file is written before any change, and nothing is written when the merge
-changes nothing. The 10-minute timer runs `pull`, so it propagates like model
-lists do.
-
-Conflicts are last-writer-wins for the same key; the backup is the undo.
-
-## Hub
-
-```sh
-t3stack hub [--client NAME] [--host ADDR] [--port N]
-```
-
-Installs magpie, runs it as a user service (restarts on failure, starts at
-boot), binds the gateway to the network and prints the join line. On macOS turn
-on *Share on local network* in the app instead. Open the port in the host's
-firewall. TLS: `magpie https on`.
-
-## Sync
-
-`t3stack sync [github://owner/repo]` turns on magpie's encrypted sync. It reuses
-`gh auth token` and the passphrase magpie already saved, so on a synced machine
-it needs no input. The repository must be **private**: magpie refuses to push to
-a public one, since its history holds every sealed version.
+- **A program** → a line in `packages.txt`.
+- **A Claude Code plugin** → a line in `claude-plugins.txt` as `<marketplace>  <plugin@marketplace>`.
+- **A shared agent setting** → `t3stack dotfiles save` (magpie-owned keys are skipped).
+- **A provider / model / account** → on the hub only (`magpie provider add …`,
+  `magpie accounts add …`); every machine sees it as `hub/…`.
 
 ## Notes
 
-- Release assets are downloaded from `github.com` / `release-assets.githubusercontent.com`,
-  not `raw.githubusercontent.com` — that host is blocked on some networks, and
-  the CDN in front of it serves stale copies.
-- With `--no-install`, only magpie and config are touched; nothing under
-  `~/.claude` or `~/.pi` is installed.
-- T3 Code is never pointed at the hub directly: its provider instance keeps
-  `http://127.0.0.1:3425` and the local magpie forwards.
+- This public repo is the distribution: the script, config, dotfiles and fleet
+  reports. The sealed magpie backup and the hub CA live in the private
+  `t3stack` repo.
+- No GitHub Actions, no releases, no assets, no CDN — cloning is the update path.
+- `sync` carries settings, profiles, agent picks and the Library, but **no API
+  keys and no memory**. An MCP server whose env holds a token should be
+  `magpie library mcp local <name> on`, so sync never carries it.
+- The join key is public and capped on the hub; it cannot read provider keys.
 
 MIT licensed.
