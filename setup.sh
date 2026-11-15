@@ -104,11 +104,13 @@ gh_auth() {
 # The repository is the distribution: one clone, pulled at most once a minute,
 # and every file (script, config, packages, dotfiles, CA) read from it. No
 # releases, no assets.
-repo_sync() {
+repo_sync() { # pass "force" to skip the one-minute freshness guard
 	command -v git >/dev/null 2>&1 || return 1
 	mkdir -p "$(dirname "$REPO_DIR")"
 	if [ -d "$REPO_DIR/.git" ]; then
-		[ -f "$REPO_DIR/.pulled" ] && [ -n "$(find "$REPO_DIR/.pulled" -mmin -1 2>/dev/null)" ] && return 0
+		if [ "${1:-}" != "force" ] && [ -f "$REPO_DIR/.pulled" ] && [ -n "$(find "$REPO_DIR/.pulled" -mmin -1 2>/dev/null)" ]; then
+			return 0
+		fi
 		git -C "$REPO_DIR" pull --ff-only -q 2>/dev/null || return 1
 	else
 		git clone -q "https://github.com/$TOOL_REPO.git" "$REPO_DIR" 2>/dev/null || return 1
@@ -1152,6 +1154,7 @@ status() {
 
 update_self() {
 	mkdir -p "$HOME/.local/bin"
+	repo_sync force || true
 	if ! fetch_asset "$SELF.new" setup.sh; then
 		rm -f "$SELF.new"
 		die "t3stack update: could not read setup.sh from $TOOL_REPO"
