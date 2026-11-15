@@ -237,14 +237,14 @@ install_timer() {
 Description=Refresh magpie model lists and shared dotfiles
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '$SELF update >/dev/null 2>&1 || true; $SELF deps >/dev/null 2>&1 || true; $bin sync; $SELF dotfiles pull; $SELF report >/dev/null 2>&1 || true'
+ExecStart=/bin/sh -c '$SELF update >/dev/null 2>&1 || true; $SELF deps >/dev/null 2>&1 || true; $bin sync; $SELF sync >/dev/null 2>&1 || true; $SELF dotfiles pull; $SELF report >/dev/null 2>&1 || true'
 EOF
 	cat >"$dir/t3stack-models.timer.new" <<EOF
 [Unit]
-Description=Refresh magpie model lists every 10 minutes
+Description=t3stack converge (update, deps, sync, dotfiles) every 3 minutes
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=10min
+OnBootSec=1min
+OnUnitActiveSec=3min
 Unit=t3stack-models.service
 [Install]
 WantedBy=timers.target
