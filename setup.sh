@@ -291,8 +291,11 @@ github_cmd() {
 	if printf '%s' "$token" | gh auth login --with-token >/dev/null 2>&1; then
 		gh auth setup-git >/dev/null 2>&1 || true
 		info "github: token stored, gh and git are set up"
+	elif gh auth status >/dev/null 2>&1; then
+		gh auth setup-git >/dev/null 2>&1 || true
+		info "github: token stored (used through GH_TOKEN)"
 	else
-		info "! github: gh rejected the token; kept at $GH_TOKEN_FILE"
+		info "! github: the token was not accepted; kept at $GH_TOKEN_FILE"
 	fi
 	gh auth status 2>&1 | sed -n '1,5p'
 }
