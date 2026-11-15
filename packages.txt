@@ -4,4 +4,4 @@
 # htop
 jq
 # ripgrep
-# tmux
+tmux
