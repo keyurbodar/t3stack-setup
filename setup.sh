@@ -569,7 +569,7 @@ DF_REPO="$REPO_DIR"
 DF_CLAUDE="$HOME/.claude/settings.json"
 DF_PI="$HOME/.pi/agent/settings.json"
 DF_T3="$HOME/.t3/userdata/settings.json"
-DF_PROTECT_CLAUDE='model,modelPicker,enabledPlugins,env.ANTHROPIC_*,env.ANTHROPIC_AUTH_TOKEN,env.ANTHROPIC_DEFAULT_HAIKU_MODEL,env.ANTHROPIC_DEFAULT_SONNET_MODEL,env.ANTHROPIC_DEFAULT_OPUS_MODEL,env.ANTHROPIC_SMALL_FAST_MODEL,env.CLAUDE_CODE_MODEL_CAPABILITIES,env.ENABLE_TOOL_SEARCH,env.CLAUDE_CODE_AUTO_MODE_SERVER,env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,env.CLAUDE_CODE_MAX_OUTPUT_TOKENS'
+DF_PROTECT_CLAUDE='model,modelPicker,enabledPlugins,extraKnownMarketplaces,env.ANTHROPIC_*,env.ANTHROPIC_AUTH_TOKEN,env.ANTHROPIC_DEFAULT_HAIKU_MODEL,env.ANTHROPIC_DEFAULT_SONNET_MODEL,env.ANTHROPIC_DEFAULT_OPUS_MODEL,env.ANTHROPIC_SMALL_FAST_MODEL,env.CLAUDE_CODE_MODEL_CAPABILITIES,env.ENABLE_TOOL_SEARCH,env.CLAUDE_CODE_AUTO_MODE_SERVER,env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,env.CLAUDE_CODE_MAX_OUTPUT_TOKENS,env.CLAUDE_CODE_MAX_CONTEXT_TOKENS'
 DF_PROTECT_PI='defaultProvider,defaultModel,lastChangelogVersion'
 DF_PROTECT_T3='providerInstances'
 
@@ -697,7 +697,7 @@ for name in os.listdir(d) if os.path.isdir(d) else []:
     def walk(o, path=""):
         if isinstance(o, dict):
             for k, v in o.items():
-                if any(w in k.lower() for w in ("token", "secret", "password", "apikey", "api_key")):
+                if re.search(r"(?i)(apikey|api_key|secret|passwd|password|(^|[_.-])token$)", k):
                     bad.append(f"{name}:{path}{k}")
                 walk(v, f"{path}{k}.")
         elif isinstance(o, list):
