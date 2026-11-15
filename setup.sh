@@ -260,6 +260,140 @@ EOF
 	fi
 }
 
+# ---- github -----------------------------------------------------------------
+install_gh() {
+	command -v gh >/dev/null 2>&1 && return 0
+	command -v python3 >/dev/null 2>&1 || die "github: python3 is needed to install gh"
+	os=$(uname -s) arch=$(uname -m)
+	case "$os" in
+	Linux) o=linux ;;
+	Darwin) o=macOS ;;
+	*) die "github: unsupported OS for gh: $os" ;;
+	esac
+	case "$arch" in
+	x86_64 | amd64) a=amd64 ;;
+	aarch64 | arm64) a=arm64 ;;
+	*) die "github: unsupported architecture for gh: $arch" ;;
+	esac
+	tag=$(curl -fsSL --max-time 20 https://api.github.com/repos/cli/cli/releases/latest |
+		python3 -c 'import json,sys;print(json.load(sys.stdin)["tag_name"])') ||
+		die "github: could not read the gh release"
+	ver=${tag#v}
+	tmp=$(mktemp -d)
+	case "$o" in
+	linux)
+		curl -fsSL --max-time 120 "https://github.com/cli/cli/releases/download/$tag/gh_${ver}_linux_${a}.tar.gz" -o "$tmp/gh.tar.gz" ||
+			die "github: could not download gh"
+		tar -xzf "$tmp/gh.tar.gz" -C "$tmp"
+		install -m755 "$tmp/gh_${ver}_linux_${a}/bin/gh" "$HOME/.local/bin/gh"
+		;;
+	macOS)
+		curl -fsSL --max-time 120 "https://github.com/cli/cli/releases/download/$tag/gh_${ver}_macOS_${a}.zip" -o "$tmp/gh.zip" ||
+			die "github: could not download gh"
+		unzip -q "$tmp/gh.zip" -d "$tmp"
+		install -m755 "$tmp/gh_${ver}_macOS_${a}/bin/gh" "$HOME/.local/bin/gh"
+		;;
+	esac
+	rm -rf "$tmp"
+	command -v gh >/dev/null 2>&1 || die "github: gh did not install"
+}
+
+github_cmd() {
+	token=""
+	case "${1:-}" in
+	--token-file) token=$(cat "${2:?--token-file needs a path}") ;;
+	"") ;;
+	*) token=$1 ;;
+	esac
+	[ -n "$token" ] || token=${GH_TOKEN:-}
+	if [ -z "$token" ] && [ -f "$GH_TOKEN_FILE" ]; then
+		token=$(tr -d '\r\n' <"$GH_TOKEN_FILE")
+	fi
+	if [ -z "$token" ] && (exec </dev/tty) 2>/dev/null; then
+		printf 'GitHub token (repo scope, or fine-grained read/write on t3stack): ' >/dev/tty
+		IFS= read -r token </dev/tty || token=""
+	fi
+	[ -n "$token" ] || die "github: no token given"
+	case "$token" in
+	ghp_* | github_pat_* | gho_* | ghu_*) ;;
+	*) info "! that does not look like a GitHub token; trying anyway" ;;
+	esac
+	mkdir -p "$(dirname "$GH_TOKEN_FILE")"
+	printf '%s\n' "$token" >"$GH_TOKEN_FILE"
+	chmod 600 "$GH_TOKEN_FILE"
+	export GH_TOKEN=$token
+	install_gh
+	if printf '%s' "$token" | gh auth login --with-token >/dev/null 2>&1; then
+		gh auth setup-git >/dev/null 2>&1 || true
+		info "github: token stored, gh and git are set up"
+	elif gh auth status >/dev/null 2>&1; then
+		gh auth setup-git >/dev/null 2>&1 || true
+		info "github: token stored (used through GH_TOKEN)"
+	else
+		info "! github: the token was not accepted; kept at $GH_TOKEN_FILE"
+	fi
+	gh auth status 2>&1 | sed -n '1,5p'
+}
+
+# ---- dependencies -----------------------------------------------------------
+pkg_install() {
+	if command -v apt-get >/dev/null 2>&1; then
+		sudo apt-get update -qq >/dev/null 2>&1 || true
+		sudo apt-get install -y "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	elif command -v dnf >/dev/null 2>&1; then
+		sudo dnf install -y "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	elif command -v pacman >/dev/null 2>&1; then
+		sudo pacman -S --needed --noconfirm "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	elif command -v brew >/dev/null 2>&1; then
+		brew install "$@" >/dev/null 2>&1 || info "! could not install: $*"
+	else
+		info "! install by hand: $*"
+	fi
+}
+
+install_node() {
+	command -v node >/dev/null 2>&1 && return 0
+	case "$(uname -m)" in
+	x86_64 | amd64) a=x64 ;;
+	aarch64 | arm64) a=arm64 ;;
+	*) pkg_install nodejs && return 0 ;;
+	esac
+	if [ "$(uname -s)" = "Darwin" ]; then
+		pkg_install node
+		return 0
+	fi
+	command -v python3 >/dev/null 2>&1 || { pkg_install nodejs; return 0; }
+	info "installing node"
+	ver=$(curl -fsSL --max-time 20 https://nodejs.org/dist/index.json |
+		python3 -c 'import json,sys;v=[x["version"] for x in json.load(sys.stdin) if x.get("lts")];print(v[0].lstrip("v"))' 2>/dev/null) || return 0
+	tmp=$(mktemp -d)
+	curl -fsSL --max-time 180 "https://nodejs.org/dist/v$ver/node-v$ver-linux-$a.tar.gz" -o "$tmp/n.tar.gz" || { rm -rf "$tmp"; return 0; }
+	mkdir -p "$HOME/.local/node"
+	tar -xzf "$tmp/n.tar.gz" -C "$HOME/.local/node" --strip-components=1
+	for b in node npm npx; do
+		ln -sfn "$HOME/.local/node/bin/$b" "$HOME/.local/bin/$b"
+	done
+	rm -rf "$tmp"
+}
+
+install_bun() {
+	command -v bun >/dev/null 2>&1 && return 0
+	info "installing bun"
+	curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1 || info "! bun install failed"
+}
+
+install_deps() {
+	command -v curl >/dev/null 2>&1 || pkg_install curl
+	install_gh
+	command -v htop >/dev/null 2>&1 || pkg_install htop
+	if ! command -v fastfetch >/dev/null 2>&1 && ! command -v neofetch >/dev/null 2>&1; then
+		pkg_install fastfetch
+		command -v fastfetch >/dev/null 2>&1 || pkg_install neofetch
+	fi
+	install_node
+	install_bun
+}
+
 # ---- dependencies -----------------------------------------------------------
 pkg_install() {
 	if command -v brew >/dev/null 2>&1; then
