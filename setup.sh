@@ -211,7 +211,7 @@ install_timer() {
 Description=Refresh magpie model lists and shared dotfiles
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c '$bin sync; $SELF dotfiles pull'
+ExecStart=/bin/sh -c '$SELF update >/dev/null 2>&1 || true; $bin sync; $SELF dotfiles pull'
 EOF
 	cat >"$dir/t3stack-models.timer" <<EOF
 [Unit]
@@ -715,14 +715,19 @@ status() {
 
 update_self() {
 	mkdir -p "$HOME/.local/bin"
-	if fetch_asset "$SELF.new" setup.sh; then
-		mv "$SELF.new" "$SELF"
-		chmod +x "$SELF"
-		info "updated $SELF"
-	else
+	if ! fetch_asset "$SELF.new" setup.sh; then
 		rm -f "$SELF.new"
 		die "t3stack update: could not download the release asset"
 	fi
+	if [ -x "$SELF" ] && cmp -s "$SELF.new" "$SELF"; then
+		rm -f "$SELF.new"
+		info "t3stack is current"
+		return 0
+	fi
+	mv "$SELF.new" "$SELF"
+	chmod +x "$SELF"
+	[ -d "$HOME/.config/systemd/user" ] && install_timer
+	info "updated $SELF"
 }
 
 cmd=${1:-join}
