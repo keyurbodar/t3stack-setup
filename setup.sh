@@ -22,11 +22,9 @@
 
 set -eu
 
-HUB_DEFAULT="https://43.128.89.110:3425"
 RELEASE="https://github.com/keyurbodar/t3stack-setup/releases/latest/download"
 CA_URL="$RELEASE/hub-ca.crt"
-CA_SHA="bcab9c27858d71b651ee8f31f9066a5c28cf0fa007a6b057fcf01b0c6946c9a9"
-REPO_DEFAULT="github://keyurbodar/t3stack"
+CONF_CACHE="$HOME/.config/t3stack/t3stack.conf"
 PORT=3425
 ID=${ID:-hub}
 SELF="$HOME/.local/bin/t3stack"
@@ -41,6 +39,22 @@ fi
 [ -n "${T3STACK_DEBUG:-}" ] && set -x
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# Everything machine- or vendor-specific lives in t3stack.conf in the repo, not
+# in this script. Cached for an hour.
+conf_load() {
+	[ -f "$CONF_CACHE" ] && [ -n "$(find "$CONF_CACHE" -mmin -60 2>/dev/null)" ] && return 0
+	mkdir -p "$(dirname "$CONF_CACHE")"
+	if fetch_asset "$CONF_CACHE.new" t3stack.conf 2>/dev/null; then
+		mv "$CONF_CACHE.new" "$CONF_CACHE"
+	else
+		rm -f "$CONF_CACHE.new"
+	fi
+}
+conf_get() { [ -f "$CONF_CACHE" ] && sed -n "s/^$1=//p" "$CONF_CACHE" | head -n1; }
+hub_default() { conf_load; conf_get hub; }
+repo_default() { conf_load; conf_get repo; }
+fleet_repo() { conf_load; conf_get fleet; }
 info() { printf '%s\n' "$*"; }
 
 usage() {
@@ -88,7 +102,7 @@ fetch_asset() { # dest path-in-repo
 	if [ -n "$auth" ]; then
 		curl -fsSL --connect-timeout 8 --max-time 30 -H "$auth" \
 			-H 'Accept: application/vnd.github.raw' \
-			"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/$2?x=$(date +%s)" -o "$1" 2>/dev/null && return 0
+			"https://api.github.com/repos/${T3STACK_REPO:-keyurbodar/t3stack-setup}/contents/$2?x=$(date +%s)" -o "$1" 2>/dev/null && return 0
 	fi
 	curl -fsSL --connect-timeout 8 --max-time 60 "$RELEASE/$2" -o "$1"
 }
@@ -160,7 +174,8 @@ trust_hub_ca() {
 	fi
 	if command -v sha256sum >/dev/null 2>&1; then got=$(sha256sum "$ca" | cut -d' ' -f1)
 	else got=$(shasum -a 256 "$ca" | cut -d' ' -f1); fi
-	[ -z "$CA_SHA" ] || [ "$got" = "$CA_SHA" ] || die "hub CA checksum mismatch (got $got)"
+	want=$(conf_load; conf_get ca_sha)
+	[ -z "$want" ] || [ "$got" = "$want" ] || die "hub CA checksum mismatch (got $got)"
 	case "$(uname -s)" in
 	Linux) sudo cp "$ca" /usr/local/share/ca-certificates/t3stack-hub.crt && sudo update-ca-certificates >/dev/null ;;
 	Darwin) sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$ca" ;;
@@ -701,11 +716,13 @@ PYEOF
 # Every machine writes one small file into this public repo, so one command here
 # can show what every machine runs. Written only when something changed.
 fleet_file() {
+	_repo=$(fleet_repo)
+	[ -n "$_repo" ] || return 1
 	_f=$1
 	auth=$(gh_auth || true)
 	set -- -fsSL --max-time 20 -H 'Accept: application/vnd.github.raw'
 	[ -n "$auth" ] && set -- "$@" -H "$auth"
-	curl "$@" "https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet/$_f?x=$(date +%s)" 2>/dev/null
+	curl "$@" "https://api.github.com/repos/$_repo/contents/fleet/$_f?x=$(date +%s)" 2>/dev/null
 }
 
 report() {
@@ -739,9 +756,6 @@ d = {
     "os": platform.platform(),
     "magpie": out("magpie --version 2>/dev/null").replace("magpie ", ""),
     "t3stack": sha,
-    "hub": out("magpie providers 2>/dev/null | awk '/Remote magpie/{print $3}'"),
-    "models": out("magpie models 2>/dev/null | grep -c '^  hub/'"),
-    "agents": agents,
 }
 print(json.dumps(d, sort_keys=True))
 PYEOF
@@ -752,9 +766,10 @@ PYEOF
 		return 0
 	fi
 	b64=$(printf '%s' "$info" | base64 | tr -d '\n')
-	args="-X PUT repos/keyurbodar/t3stack-setup/contents/fleet/$host.json -f message=fleet:$host -f content=$b64"
+	_frepo=$(fleet_repo)
+	args="-X PUT repos/$_frepo/contents/fleet/$host.json -f message=fleet:$host -f content=$b64"
 	sha=$(curl -fsSL --max-time 20 -H "Authorization: Bearer $tok" \
-		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet/$host.json?x=$(date +%s)" 2>/dev/null |
+		"https://api.github.com/repos/$(fleet_repo)/contents/fleet/$host.json?x=$(date +%s)" 2>/dev/null |
 		sed -n 's/.*"sha": *"\([^"]*\)".*/\1/p' | head -n1)
 	[ -n "$sha" ] && args="$args -f sha=$sha"
 	# shellcheck disable=SC2086
@@ -766,13 +781,15 @@ fleet() {
 	auth=$(gh_auth || true)
 	set -- -fsSL --max-time 20
 	[ -n "$auth" ] && set -- "$@" -H "$auth"
-	list=$(curl "$@" "https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet?x=$(date +%s)" 2>/dev/null |
+	list=$(curl "$@" "https://api.github.com/repos/$(fleet_repo)/contents/fleet?x=$(date +%s)" 2>/dev/null |
 		python3 -c 'import json,sys
 try:
     d=json.load(sys.stdin)
 except Exception:
     d=[]
-print("\\n".join(x["name"] for x in d if x["name"].endswith(".json")))') || true
+for x in d:
+    if x["name"].endswith(".json"):
+        print(x["name"])') || true
 	[ -n "$list" ] || { info "no machines have reported yet"; return 0; }
 	tmp=$(mktemp -d)
 	for f in $list; do
@@ -847,7 +864,7 @@ hub() {
 # ---- join ------------------------------------------------------------------
 
 join() {
-	url=$HUB_DEFAULT
+	url=$(hub_default)
 	case "${1:-}" in
 	http://* | https://*) url=$1 && shift ;;
 	esac
@@ -945,7 +962,8 @@ join() {
 # ---- sync / status ---------------------------------------------------------
 
 sync() {
-	repo=${1:-$REPO_DEFAULT}
+	repo=${1:-$(repo_default)}
+	[ -n "$repo" ] || die "sync: no repo configured (t3stack.conf: repo=…, or pass one)"
 	install_self
 	install_magpie
 	install_deps
