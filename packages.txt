@@ -2,6 +2,6 @@
 # The 10-minute timer installs anything here that is missing.
 # Examples:
 # htop
-# jq
+jq
 # ripgrep
 # tmux
