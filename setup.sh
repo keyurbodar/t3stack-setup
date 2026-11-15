@@ -11,6 +11,7 @@
 #   t3stack status                 what is here
 #   t3stack hub [--client NAME]    make this machine the hub
 #   t3stack dotfiles [pull|save]   merge/save dotfile fragments for Claude, pi, T3
+#   t3stack converge               run the 3-minute converge now
 #   t3stack fleet                  every machine's version and last report
 #   t3stack report                 publish this machine's status
 #   t3stack deps                   install curl, gh, htop, fastfetch, node, bun
@@ -67,6 +68,7 @@ t3stack — one magpie hub, many machines
   t3stack sync                            magpie's encrypted config/skills sync
   t3stack status                          gateway, providers, agents
   t3stack hub [--client NAME] [--port N]  make this machine the hub
+  t3stack converge                        run the 3-minute converge right now
   t3stack fleet                           every machine's version and last report
   t3stack deps                            install curl, gh, htop, fastfetch, node, bun
   t3stack github [token]                  store a GitHub token (no gh login/OTP again)
@@ -1173,6 +1175,16 @@ case "$cmd" in
 join) join "$@" ;;
 dotfiles) dotfiles "$@" ;;
 github) github_cmd "$@" ;;
+converge)
+	update_self
+	install_magpie
+	install_deps
+	install_timer
+	magpie sync
+	sync
+	dotfiles pull
+	report
+	;;
 deps)
 	if [ "${1:-}" = "--check" ]; then
 		for c in curl gh htop fastfetch neofetch node bun claude pi t3 magpie; do
