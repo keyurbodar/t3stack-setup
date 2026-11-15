@@ -401,7 +401,14 @@ install_node() {
 install_bun() {
 	command -v bun >/dev/null 2>&1 && return 0
 	info "installing bun"
-	curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1 || info "! bun install failed"
+	command -v unzip >/dev/null 2>&1 || pkg_install unzip
+	if curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1; then
+		return 0
+	fi
+	if command -v npm >/dev/null 2>&1 && npm install -g bun >/dev/null 2>&1; then
+		return 0
+	fi
+	info "! bun install failed (needs unzip; apt install unzip)"
 }
 
 install_deps() {
@@ -504,7 +511,14 @@ install_node() {
 install_bun() {
 	command -v bun >/dev/null 2>&1 && return 0
 	info "installing bun"
-	curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1 || info "! bun install failed"
+	command -v unzip >/dev/null 2>&1 || pkg_install unzip
+	if curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1; then
+		return 0
+	fi
+	if command -v npm >/dev/null 2>&1 && npm install -g bun >/dev/null 2>&1; then
+		return 0
+	fi
+	info "! bun install failed (needs unzip; apt install unzip)"
 }
 
 install_deps() {
