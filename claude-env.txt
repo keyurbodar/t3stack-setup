@@ -1,1 +1,4 @@
-CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1
+# Env vars for ~/.claude/settings.json (KEY=VALUE, # comments).
+# Synced to every machine; magpie-owned ANTHROPIC_*/model keys are refused.
+#
+# CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1

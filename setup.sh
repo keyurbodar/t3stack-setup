@@ -905,9 +905,13 @@ df_files_pull() {
 		if [ -e "$dst" ] && diff -rq "$src" "$dst" >/dev/null 2>&1; then
 			continue
 		fi
-		mkdir -p "$(dirname "$dst")"
-		rm -rf "$dst"
-		cp -a "$src" "$dst"
+		if [ -d "$src" ]; then
+			mkdir -p "$dst"
+			cp -a "$src/." "$dst/"
+		else
+			mkdir -p "$(dirname "$dst")"
+			cp -a "$src" "$dst"
+		fi
 		info "dotfiles: $item"
 	done
 }
