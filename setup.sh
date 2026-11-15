@@ -797,6 +797,13 @@ for c in ("bun", "node", "gh", "curl", "htop", "fastfetch", "neofetch", "claude"
         tools[c] = (v[:40] or "yes")
     else:
         tools[c] = ""
+if tools.get("claude"):
+    for line in out("claude plugin list 2>/dev/null").splitlines():
+        tok = line.strip().lstrip("❯ ").strip()
+        if "@" in tok and " " not in tok:
+            tools["claude:" + tok] = "enabled"
+        elif "@" in line and "enabled" in line:
+            pass
 d = {
     "host": host,
     "tools": tools,
