@@ -60,7 +60,7 @@ EOF
 # ---- small helpers ---------------------------------------------------------
 
 fetch_asset() { # dest path-on-release
-	curl -fsSL --connect-timeout 8 --max-time 60 "$RELEASE/$2" -o "$1"
+	curl -fsSL --connect-timeout 8 --max-time 60 "$RELEASE/$2?x=$(date +%s)" -o "$1"
 }
 
 install_self() {
@@ -522,8 +522,14 @@ status() {
 
 update_self() {
 	mkdir -p "$HOME/.local/bin"
-	fetch_asset "$SELF.new" setup.sh && mv "$SELF.new" "$SELF" && chmod +x "$SELF"
-	info "updated $SELF"
+	if fetch_asset "$SELF.new" setup.sh; then
+		mv "$SELF.new" "$SELF"
+		chmod +x "$SELF"
+		info "updated $SELF"
+	else
+		rm -f "$SELF.new"
+		die "t3stack update: could not download the release asset"
+	fi
 }
 
 cmd=${1:-join}
