@@ -1,0 +1,1 @@
+{"agents": [{"agent": "Claude Code", "model": "hub/opencode-go/deepseek-v4.1-flash[1m]"}, {"agent": "Pi", "model": "magpie/hub/opencode-go/deepseek-v4.1-flash"}, {"agent": "T3 Code", "model": "provider magpie"}], "host": "build", "hub": "hub", "magpie": "0.1.4188", "models": "30", "os": "Linux-7.0.0-1013-oracle-x86_64-with-glibc2.39", "t3stack": "d394e55bc689"}
