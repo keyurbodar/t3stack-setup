@@ -187,6 +187,25 @@ resolve_key() {
 	return 1
 }
 
+# The backup repo's token travels encrypted with the join key, so a machine
+# that has joined can sync without anyone typing a token.
+decrypt_github_token() {
+	jk=""
+	for f in "${KEY_FILE:-}" "$HOME/.config/t3stack/gateway.key"; do
+		if [ -n "$f" ] && [ -f "$f" ]; then jk=$(tr -d '\r\n' <"$f"); break; fi
+	done
+	[ -n "$jk" ] || return 1
+	command -v openssl >/dev/null 2>&1 || return 1
+	tmp=$(mktemp)
+	if ! fetch_asset "$tmp" hub/github.token.enc 2>/dev/null; then
+		rm -f "$tmp"
+		return 1
+	fi
+	out=$(openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -base64 -pass "pass:$jk" -in "$tmp" 2>/dev/null) || out=""
+	rm -f "$tmp"
+	[ -n "$out" ] && printf '%s' "$out"
+}
+
 # Pick a sane default from what the hub serves.
 pick_model() {
 	list=$(magpie models 2>/dev/null | awk -v p="$ID/" 'index($0, p) == 3 { print $1 }')
@@ -626,6 +645,7 @@ sync() {
 	install_magpie
 	install_timer
 	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
+	[ -n "${GITHUB_TOKEN:-}" ] || GITHUB_TOKEN=$(decrypt_github_token || true)
 	if [ -z "${SYNC_PASSPHRASE:-}" ] && [ -f "$HOME/.config/magpie/sync.json" ]; then
 		SYNC_PASSPHRASE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("passphrase",""))' \
 			"$HOME/.config/magpie/sync.json" 2>/dev/null || true)
