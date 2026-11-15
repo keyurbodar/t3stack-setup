@@ -189,7 +189,7 @@ resolve_key() {
 
 # The backup repo's token travels encrypted with the join key, so a machine
 # that has joined can sync without anyone typing a token.
-decrypt_github_token() {
+decrypt_blob() { # path-in-repo
 	jk=""
 	for f in "${KEY_FILE:-}" "$HOME/.config/t3stack/gateway.key"; do
 		if [ -n "$f" ] && [ -f "$f" ]; then jk=$(tr -d '\r\n' <"$f"); break; fi
@@ -197,7 +197,7 @@ decrypt_github_token() {
 	[ -n "$jk" ] || return 1
 	command -v openssl >/dev/null 2>&1 || return 1
 	tmp=$(mktemp)
-	if ! fetch_asset "$tmp" hub/github.token.enc 2>/dev/null; then
+	if ! fetch_asset "$tmp" "$1" 2>/dev/null; then
 		rm -f "$tmp"
 		return 1
 	fi
@@ -205,6 +205,9 @@ decrypt_github_token() {
 	rm -f "$tmp"
 	[ -n "$out" ] && printf '%s' "$out"
 }
+
+decrypt_github_token() { decrypt_blob hub/github.token.enc; }
+decrypt_sync_passphrase() { decrypt_blob hub/sync.pass.enc; }
 
 # Pick a sane default from what the hub serves.
 pick_model() {
@@ -650,20 +653,17 @@ sync() {
 		SYNC_PASSPHRASE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("passphrase",""))' \
 			"$HOME/.config/magpie/sync.json" 2>/dev/null || true)
 	fi
-	if [ -z "${SYNC_PASSPHRASE:-}" ] && (exec </dev/tty) 2>/dev/null; then
-		printf 'Sync passphrase (the one that seals the backup): ' >/dev/tty
-		stty -echo </dev/tty 2>/dev/null || true
-		IFS= read -r SYNC_PASSPHRASE </dev/tty || SYNC_PASSPHRASE=""
-		stty echo </dev/tty 2>/dev/null || true
-		printf '\n' >/dev/tty
-	fi
+	[ -n "${SYNC_PASSPHRASE:-}" ] || SYNC_PASSPHRASE=$(decrypt_sync_passphrase || true)
+
 	if magpie github 2>/dev/null | head -n1 | grep -q "${repo#github://}"; then
 		magpie github now
 	elif [ -n "${GITHUB_TOKEN:-}" ] && [ -n "${SYNC_PASSPHRASE:-}" ]; then
 		printf '%s\n%s\n' "$GITHUB_TOKEN" "$SYNC_PASSPHRASE" | magpie github on "$repo"
-	else
-		info "magpie asks for a GitHub token (Contents: read/write) and the sync passphrase:"
+	elif (exec </dev/tty) 2>/dev/null; then
+		info "magpie asks for what it still needs (token, then the sync passphrase):"
 		magpie github on "$repo"
+	else
+		die "sync: need a GitHub token and the sync passphrase (GITHUB_TOKEN=… SYNC_PASSPHRASE=…)"
 	fi
 }
 
