@@ -19,6 +19,8 @@ t3stack status                  # gateway, join key, providers, agents
 t3stack join <key>              # re-join / switch hub (optional key)
 t3stack sync                    # magpie's encrypted config + skills sync
 t3stack update                  # refresh the local command
+t3stack dotfiles pull           # merge shared Claude/pi/T3 settings here
+t3stack dotfiles save [msg]     # capture this machine's extra keys, commit, push
 ```
 
 Flags: `--no-install` (don't install Claude Code/pi), `--no-wire` (leave every
@@ -38,6 +40,28 @@ in your password manager.
 `join` checks the key against the hub before changing anything: `401/403` stops
 with "the hub rejected this key", a network failure says so, and only then is
 anything written.
+
+## Dotfiles
+
+magpie owns `model` and its gateway `env` in `~/.claude/settings.json` (and the
+provider/model fields in pi and T3). Everything else — permissions, hooks,
+experiments, statusline — is shared through this repo:
+
+```
+dotfiles/claude.json   extra keys for ~/.claude/settings.json
+dotfiles/pi.json       extra keys for ~/.pi/agent/settings.json
+dotfiles/t3.json       extra keys for ~/.t3/userdata/settings.json
+```
+
+`t3stack dotfiles save` captures the non-magpie keys here, commits and pushes;
+`t3stack dotfiles pull` pulls and deep-merges them into each file, skipping the
+keys magpie owns (`model`, `modelPicker`, `env.ANTHROPIC_*`,
+`env.CLAUDE_CODE_*`, `defaultProvider/Model`, `providerInstances`). A `.bak` of
+the file is written before any change, and nothing is written when the merge
+changes nothing. The 10-minute timer runs `pull`, so it propagates like model
+lists do.
+
+Conflicts are last-writer-wins for the same key; the backup is the undo.
 
 ## Hub
 

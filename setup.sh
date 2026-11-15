@@ -10,6 +10,7 @@
 #   t3stack sync                   magpie's encrypted config/skills sync
 #   t3stack status                 what is here
 #   t3stack hub [--client NAME]    make this machine the hub
+#   t3stack dotfiles [pull|save]   merge/save dotfile fragments for Claude, pi, T3
 #   t3stack update                 refresh the local command
 #
 # Environment: GATEWAY_KEY, KEY_FILE, ADMIN_KEY_FILE, MODEL,
@@ -41,6 +42,8 @@ t3stack — one magpie hub, many machines
   t3stack sync                            magpie's encrypted config/skills sync
   t3stack status                          gateway, providers, agents
   t3stack hub [--client NAME] [--port N]  make this machine the hub
+  t3stack dotfiles pull                   merge shared Claude/pi/T3 settings here
+  t3stack dotfiles save [message]         capture this machine's extra keys, commit, push
   t3stack update                          refresh the local command
 
 join installs magpie, trusts the hub CA, runs the local gateway and adds the
@@ -188,10 +191,10 @@ install_timer() {
 	mkdir -p "$dir"
 	cat >"$dir/t3stack-models.service" <<EOF
 [Unit]
-Description=Refresh magpie model lists
+Description=Refresh magpie model lists and shared dotfiles
 [Service]
 Type=oneshot
-ExecStart=$bin sync
+ExecStart=/bin/sh -c '$bin sync; $SELF dotfiles pull'
 EOF
 	cat >"$dir/t3stack-models.timer" <<EOF
 [Unit]
@@ -205,6 +208,133 @@ WantedBy=timers.target
 EOF
 	systemctl --user daemon-reload >/dev/null 2>&1 || return 0
 	systemctl --user enable --now t3stack-models.timer >/dev/null 2>&1 || true
+}
+
+# ---- dotfiles --------------------------------------------------------------
+# Only the keys magpie does not own are shared; magpie's keys are stripped from
+# the fragment on the way in and out, so the two never fight.
+DF_REPO="$HOME/.local/share/t3stack"
+DF_CLAUDE="$HOME/.claude/settings.json"
+DF_PI="$HOME/.pi/agent/settings.json"
+DF_T3="$HOME/.t3/userdata/settings.json"
+DF_PROTECT_CLAUDE='model,modelPicker,env.ANTHROPIC_BASE_URL,env.ANTHROPIC_AUTH_TOKEN,env.ANTHROPIC_DEFAULT_HAIKU_MODEL,env.ANTHROPIC_DEFAULT_SONNET_MODEL,env.ANTHROPIC_DEFAULT_OPUS_MODEL,env.ANTHROPIC_SMALL_FAST_MODEL,env.CLAUDE_CODE_MODEL_CAPABILITIES,env.ENABLE_TOOL_SEARCH,env.CLAUDE_CODE_AUTO_MODE_SERVER,env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,env.CLAUDE_CODE_MAX_OUTPUT_TOKENS'
+DF_PROTECT_PI='defaultProvider,defaultModel,lastChangelogVersion'
+DF_PROTECT_T3='providerInstances'
+
+df_repo() {
+	command -v git >/dev/null 2>&1 || die "dotfiles: git is not installed"
+	if [ -d "$DF_REPO/.git" ]; then
+		git -C "$DF_REPO" pull --ff-only -q 2>/dev/null || info "! dotfiles: pull failed (network or auth)"
+	else
+		mkdir -p "$(dirname "$DF_REPO")"
+		git clone -q https://github.com/keyurbodar/t3stack.git "$DF_REPO" 2>/dev/null ||
+			die "dotfiles: cannot clone the private repo — is gh auth set up? (gh auth login)"
+	fi
+}
+
+# df_json <merge|save> <local-file> <fragment-file> <protected-paths>
+df_json() {
+	command -v python3 >/dev/null 2>&1 || die "dotfiles: python3 is not installed"
+	python3 - "$@" <<'PYEOF'
+import json, sys
+mode, local_p, frag_p, protected = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+prot = [p for p in protected.split(",") if p]
+
+def load(p):
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def drop(d, path):
+    cur = d
+    parts = path.split(".")
+    for p in parts[:-1]:
+        if not isinstance(cur, dict) or p not in cur:
+            return
+        cur = cur[p]
+    if isinstance(cur, dict):
+        cur.pop(parts[-1], None)
+
+def merge(a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = dict(a)
+        for k, v in b.items():
+            out[k] = merge(a[k], v) if k in a else v
+        return out
+    return b
+
+local = load(local_p)
+if not isinstance(local, dict):
+    sys.exit(0)
+
+if mode == "save":
+    frag = json.loads(json.dumps(local))
+    for p in prot:
+        drop(frag, p)
+    with open(frag_p, "w") as f:
+        json.dump(frag, f, indent=2, sort_keys=True)
+        f.write("\n")
+    sys.exit(0)
+
+frag = load(frag_p)
+for p in prot:
+    drop(frag, p)
+merged = merge(local, frag)
+if merged == local:
+    sys.exit(0)
+with open(local_p + ".bak", "w") as f:
+    json.dump(local, f, indent=2, sort_keys=True)
+    f.write("\n")
+with open(local_p, "w") as f:
+    json.dump(merged, f, indent=2, sort_keys=True)
+    f.write("\n")
+print(f"updated {local_p}")
+PYEOF
+}
+
+df_each() { # <merge|save>
+	for pair in "claude:$DF_CLAUDE:$DF_PROTECT_CLAUDE" "pi:$DF_PI:$DF_PROTECT_PI" "t3:$DF_T3:$DF_PROTECT_T3"; do
+		name=${pair%%:*}
+		rest=${pair#*:}
+		file=${rest%%:*}
+		prot=${rest#*:}
+		[ -f "$file" ] || continue
+		mkdir -p "$DF_REPO/dotfiles"
+		df_json "$1" "$file" "$DF_REPO/dotfiles/$name.json" "$prot"
+	done
+}
+
+dotfiles() {
+	action=${1:-pull}
+	case "$action" in
+	pull)
+		df_repo
+		df_each merge
+		;;
+	save)
+		shift
+		msg=${1:-dotfiles: update from $(hostname 2>/dev/null || echo machine)}
+		df_repo
+		df_each save
+		git -C "$DF_REPO" add dotfiles >/dev/null 2>&1
+		if git -C "$DF_REPO" diff --cached --quiet 2>/dev/null; then
+			info "dotfiles: nothing to save"
+		else
+			git -C "$DF_REPO" commit -q -m "$msg"
+			git -C "$DF_REPO" pull --rebase -q 2>/dev/null || true
+			git -C "$DF_REPO" push -q 2>/dev/null || info "! dotfiles: push failed (auth?)"
+			info "dotfiles: saved and pushed"
+		fi
+		;;
+	status)
+		[ -d "$DF_REPO/.git" ] || { info "dotfiles: no local repo ($DF_REPO)"; return 0; }
+		git -C "$DF_REPO" log --oneline -1
+		git -C "$DF_REPO" status --short | head -20
+		;;
+	*) die "dotfiles: pull | save [message] | status" ;;
+	esac
 }
 
 # ---- hub -------------------------------------------------------------------
@@ -385,6 +515,7 @@ cmd=${1:-join}
 [ $# -gt 0 ] && shift
 case "$cmd" in
 join) join "$@" ;;
+dotfiles) dotfiles "$@" ;;
 sync) sync "$@" ;;
 status) status ;;
 hub) hub "$@" ;;
