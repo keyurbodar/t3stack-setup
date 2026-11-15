@@ -29,7 +29,7 @@ PORT=3425
 ID=${ID:-hub}
 SELF="$HOME/.local/bin/t3stack"
 
-export PATH="$HOME/.local/bin:$HOME/.pi/agent/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.pi/agent/bin:$PATH"
 # A stored token makes gh, git and the private-repo clone work with no login.
 GH_TOKEN_FILE="$HOME/.config/t3stack/github.token"
 if [ -z "${GH_TOKEN:-}" ] && [ -f "$GH_TOKEN_FILE" ]; then
