@@ -672,13 +672,16 @@ dotfiles() {
 	case "$action" in
 	pull)
 		df_repo
+		df_env_merge
 		df_each merge
+		df_files_pull
 		;;
 	save)
 		shift
 		msg=${1:-dotfiles: update from $(hostname 2>/dev/null || echo machine)}
 		df_repo
 		df_each save
+		df_files_save
 		# The fragments live in a public repo: refuse to publish anything that
 		# looks like a credential, unless --force is given.
 		if [ "${1:-}" != "--force" ] && ! python3 - "$DF_REPO/dotfiles" <<'PYEOF'
@@ -714,7 +717,7 @@ PYEOF
 			info "! dotfiles: looks like a credential above; fix it or rerun with --force"
 			return 1
 		fi
-		git -C "$DF_REPO" add dotfiles >/dev/null 2>&1
+		git -C "$DF_REPO" add dotfiles home claude-env.txt >/dev/null 2>&1
 		if git -C "$DF_REPO" diff --cached --quiet 2>/dev/null; then
 			info "dotfiles: nothing to save"
 		else
@@ -886,6 +889,63 @@ for r in rows:
     print(f"{r.get('host','').ljust(w)}  {r.get('magpie',''):9}  {r.get('t3stack',''):12}  {r.get('seen',''):18}  {missing}")
 PYEOF
 	rm -rf "$tmp"
+}
+
+# ---- claude files -----------------------------------------------------------
+# Only these are text and portable: CLAUDE.md, rules, agents, commands, skills.
+# Everything else in ~/.claude is state, identity, cache or credentials.
+DF_HOME="$REPO_DIR/home"
+DF_CLAUDE_ITEMS="CLAUDE.md rules agents commands skills"
+
+df_files_pull() {
+	for item in $DF_CLAUDE_ITEMS; do
+		src="$DF_HOME/.claude/$item"
+		[ -e "$src" ] || continue
+		dst="$HOME/.claude/$item"
+		if [ -e "$dst" ] && diff -rq "$src" "$dst" >/dev/null 2>&1; then
+			continue
+		fi
+		mkdir -p "$(dirname "$dst")"
+		rm -rf "$dst"
+		cp -a "$src" "$dst"
+		info "dotfiles: $item"
+	done
+}
+
+df_files_save() {
+	for item in $DF_CLAUDE_ITEMS; do
+		src="$HOME/.claude/$item"
+		dst="$DF_HOME/.claude/$item"
+		[ -e "$src" ] || continue
+		if [ -e "$dst" ] && diff -rq "$src" "$dst" >/dev/null 2>&1; then
+			continue
+		fi
+		mkdir -p "$(dirname "$dst")"
+		rm -rf "$dst"
+		cp -a "$src" "$dst"
+		info "dotfiles: saved $item"
+	done
+}
+
+# claude-env.txt holds KEY=VALUE lines that go into settings.json env. Keys
+# magpie owns are refused, so the gateway wiring can't be broken from here.
+df_env_merge() {
+	src="$REPO_DIR/claude-env.txt"
+	[ -f "$src" ] || return 0
+	tmp=$(mktemp)
+	python3 - "$src" "$tmp" <<'PYEOF'
+import json, sys
+env = {}
+for line in open(sys.argv[1]):
+    line = line.split("#", 1)[0].strip()
+    if not line or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    env[k.strip()] = v.strip()
+json.dump({"env": env}, open(sys.argv[2], "w"))
+PYEOF
+	df_json merge "$DF_CLAUDE" "$tmp" "$DF_PROTECT_CLAUDE"
+	rm -f "$tmp"
 }
 
 # ---- hub -------------------------------------------------------------------
