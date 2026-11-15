@@ -7,8 +7,13 @@ command. Nothing is fetched again unless you run `t3stack update`.
 
 ```sh
 git clone -q https://github.com/keyurbodar/t3stack-setup ~/.local/share/t3stack-setup
-sh ~/.local/share/t3stack-setup/setup.sh join <join-key>
+sh ~/.local/share/t3stack-setup/setup.sh
 ```
+
+Nothing else: the hub and a capped join key come from `t3stack.conf`, the CA is
+pinned there too. The only thing that ever asks is `t3stack sync`, for the
+passphrase that seals the private backup (needed because the token is sealed
+with it).
 
 (The repository is the distribution — one clone, pulled at most once a minute.
 There are no releases, tags or assets to go stale. If `raw.githubusercontent.com`
