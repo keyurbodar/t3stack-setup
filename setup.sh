@@ -271,8 +271,10 @@ github_cmd() {
 	*) token=$1 ;;
 	esac
 	[ -n "$token" ] || token=${GH_TOKEN:-}
-	[ -n "$token" ] || [ -f "$GH_TOKEN_FILE" ] && token=$(tr -d '\r\n' <"$GH_TOKEN_FILE")
-	if [ -z "$token" ] && [ -r /dev/tty ]; then
+	if [ -z "$token" ] && [ -f "$GH_TOKEN_FILE" ]; then
+		token=$(tr -d '\r\n' <"$GH_TOKEN_FILE")
+	fi
+	if [ -z "$token" ] && (exec </dev/tty) 2>/dev/null; then
 		printf 'GitHub token (repo scope, or fine-grained read/write on t3stack): ' >/dev/tty
 		IFS= read -r token </dev/tty || token=""
 	fi
