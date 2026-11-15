@@ -650,6 +650,13 @@ sync() {
 		SYNC_PASSPHRASE=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("passphrase",""))' \
 			"$HOME/.config/magpie/sync.json" 2>/dev/null || true)
 	fi
+	if [ -z "${SYNC_PASSPHRASE:-}" ] && (exec </dev/tty) 2>/dev/null; then
+		printf 'Sync passphrase (the one that seals the backup): ' >/dev/tty
+		stty -echo </dev/tty 2>/dev/null || true
+		IFS= read -r SYNC_PASSPHRASE </dev/tty || SYNC_PASSPHRASE=""
+		stty echo </dev/tty 2>/dev/null || true
+		printf '\n' >/dev/tty
+	fi
 	if magpie github 2>/dev/null | head -n1 | grep -q "${repo#github://}"; then
 		magpie github now
 	elif [ -n "${GITHUB_TOKEN:-}" ] && [ -n "${SYNC_PASSPHRASE:-}" ]; then
