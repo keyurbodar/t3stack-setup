@@ -257,6 +257,14 @@ def drop(d, path):
     if isinstance(cur, dict):
         cur.pop(parts[-1], None)
 
+def prune(d):
+    if isinstance(d, dict):
+        for k in [k for k, v in d.items() if isinstance(v, dict) and not v]:
+            del d[k]
+        for v in d.values():
+            prune(v)
+    return d
+
 def merge(a, b):
     if isinstance(a, dict) and isinstance(b, dict):
         out = dict(a)
@@ -273,6 +281,7 @@ if mode == "save":
     frag = json.loads(json.dumps(local))
     for p in prot:
         drop(frag, p)
+    prune(frag)
     with open(frag_p, "w") as f:
         json.dump(frag, f, indent=2, sort_keys=True)
         f.write("\n")
