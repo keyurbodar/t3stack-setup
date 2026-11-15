@@ -701,9 +701,11 @@ PYEOF
 # Every machine writes one small file into this public repo, so one command here
 # can show what every machine runs. Written only when something changed.
 fleet_file() {
+	_f=$1
 	auth=$(gh_auth || true)
-	curl -fsSL --max-time 20 ${auth:+-H "$auth"} -H 'Accept: application/vnd.github.raw' \
-		"https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet/$1?x=$(date +%s)" 2>/dev/null
+	set -- -fsSL --max-time 20 -H 'Accept: application/vnd.github.raw'
+	[ -n "$auth" ] && set -- "$@" -H "$auth"
+	curl "$@" "https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet/$_f?x=$(date +%s)" 2>/dev/null
 }
 
 report() {
@@ -762,7 +764,9 @@ PYEOF
 fleet() {
 	command -v python3 >/dev/null 2>&1 || die "fleet: python3 is required"
 	auth=$(gh_auth || true)
-	list=$(curl -fsSL --max-time 20 ${auth:+-H "$auth"} "https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet?x=$(date +%s)" 2>/dev/null |
+	set -- -fsSL --max-time 20
+	[ -n "$auth" ] && set -- "$@" -H "$auth"
+	list=$(curl "$@" "https://api.github.com/repos/keyurbodar/t3stack-setup/contents/fleet?x=$(date +%s)" 2>/dev/null |
 		python3 -c 'import json,sys
 try:
     d=json.load(sys.stdin)
